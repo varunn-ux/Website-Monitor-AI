@@ -8,9 +8,16 @@ export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
   const secret = process.env.CRON_SECRET;
-  if (!secret || request.headers.get('authorization') !== `Bearer ${secret}`) {
+  const authHeader = request.headers.get('authorization');
+  const isVercelCron = request.headers.get('x-vercel-cron') === '1' || request.headers.get('user-agent')?.includes('vercel-cron');
+  const isSecretMatch = secret && authHeader === `Bearer ${secret}`;
+
+  if (!isSecretMatch && !isVercelCron) {
+    console.warn('[Cron] Unauthorized call attempt');
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  console.log('[Cron] Execution started. Checking due monitored sites...');
 
   try {
     // 1. Check if there are active, due websites in monitored_sites table
