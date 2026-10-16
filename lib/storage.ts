@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
-import type { IssueCategory, IssueSeverity, IssueTrackingRecord, IssueWorkflowStatus, ScanResult } from '@/types';
+import type { IssueCategory, IssueSeverity, IssueTrackingRecord, IssueWorkflowStatus, MonitoredSite, ScanResult } from '@/types';
+import { normalizeComparisonUrl } from '@/lib/url-identity';
 
 function normalizedSupabaseUrl(raw: string) {
   const url = new URL(raw);
@@ -97,4 +98,127 @@ export async function saveIssueTracking(input: { siteUrl: string; issueKey: stri
   }
   const record: IssueTrackingRecord = { siteHost: data.site_host, issueKey: data.issue_key, issueTitle: data.issue_title, category: data.category, severity: data.severity, url: data.url ?? '', status: data.status, owner: data.owner ?? '', notes: data.notes ?? '', updatedAt: data.updated_at };
   return { saved: true, record, reason: 'Issue status and ownership saved.' };
+}
+
+function mapMonitoredSiteRow(row: any): MonitoredSite {
+  return {
+    id: row.id,
+    url: row.url,
+    name: row.name ?? '',
+    isActive: Boolean(row.is_active),
+    crawlLimit: row.crawl_limit ?? 30,
+    checkIntervalMinutes: row.check_interval_minutes ?? 60,
+    alertEmail: row.alert_email ?? '',
+    lastStatus: row.last_status ?? 'unknown',
+    lastStatusCode: row.last_status_code ?? null,
+    lastCheckedAt: row.last_checked_at ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function getMonitoredSites() {
+  let supabase;
+  try { supabase = getSupabase(); } catch (error) { return { ready: false, sites: [] as MonitoredSite[], reason: error instanceof Error ? error.message : 'Supabase error' }; }
+  if (!supabase) return { ready: false, sites: [] as MonitoredSite[], reason: 'Supabase credentials missing.' };
+  const { data, error } = await supabase.from('monitored_sites').select('*').order('created_at', { ascending: false });
+  if (error) {
+    const isMissing = error.message.toLowerCase().includes('monitored_sites');
+    return { ready: false, sites: [] as MonitoredSite[], reason: isMissing ? 'Table public.monitored_sites is not created yet. Please run the SQL migration.' : friendlyStorageError(error.message) };
+  }
+  return { ready: true, sites: (data ?? []).map(mapMonitoredSiteRow), reason: '' };
+}
+
+export async function createMonitoredSite(input: {
+  url: string;
+  name?: string;
+  crawlLimit?: number;
+  checkIntervalMinutes?: number;
+  alertEmail?: string;
+}) {
+  let supabase;
+  try { supabase = getSupabase(); } catch (error) { return { saved: false, reason: error instanceof Error ? error.message : 'Supabase error' }; }
+  if (!supabase) return { saved: false, reason: 'Supabase credentials missing.' };
+
+  const finalUrl = normalizeComparisonUrl(input.url);
+
+  const { data, error } = await supabase.from('monitored_sites').insert({
+    url: finalUrl,
+    name: (input.name ?? '').slice(0, 100),
+    crawl_limit: Math.min(Math.max(input.crawlLimit ?? 30, 10), 500),
+    check_interval_minutes: Math.max(input.checkIntervalMinutes ?? 60, 5),
+    alert_email: (input.alertEmail ?? '').slice(0, 200),
+    is_active: true,
+  }).select('*').single();
+
+  if (error) {
+    if (error.code === '23505') return { saved: false, reason: 'This website URL is already monitored.' };
+    return { saved: false, reason: friendlyStorageError(error.message) };
+  }
+  return { saved: true, site: mapMonitoredSiteRow(data), reason: '' };
+}
+
+export async function updateMonitoredSite(id: string, patch: {
+  name?: string;
+  isActive?: boolean;
+  crawlLimit?: number;
+  checkIntervalMinutes?: number;
+  alertEmail?: string;
+}) {
+  let supabase;
+  try { supabase = getSupabase(); } catch (error) { return { saved: false, reason: error instanceof Error ? error.message : 'Supabase error' }; }
+  if (!supabase) return { saved: false, reason: 'Supabase credentials missing.' };
+
+  const updates: Record<string, any> = { updated_at: new Date().toISOString() };
+  if (typeof patch.name === 'string') updates.name = patch.name.slice(0, 100);
+  if (typeof patch.isActive === 'boolean') updates.is_active = patch.isActive;
+  if (typeof patch.crawlLimit === 'number') updates.crawl_limit = Math.min(Math.max(patch.crawlLimit, 10), 500);
+  if (typeof patch.checkIntervalMinutes === 'number') updates.check_interval_minutes = Math.max(patch.checkIntervalMinutes, 5);
+  if (typeof patch.alertEmail === 'string') updates.alert_email = patch.alertEmail.slice(0, 200);
+
+  const { data, error } = await supabase.from('monitored_sites').update(updates).eq('id', id).select('*').single();
+  if (error) return { saved: false, reason: friendlyStorageError(error.message) };
+  return { saved: true, site: mapMonitoredSiteRow(data), reason: '' };
+}
+
+export async function deleteMonitoredSite(id: string) {
+  let supabase;
+  try { supabase = getSupabase(); } catch (error) { return { deleted: false, reason: error instanceof Error ? error.message : 'Supabase error' }; }
+  if (!supabase) return { deleted: false, reason: 'Supabase credentials missing.' };
+
+  const { error } = await supabase.from('monitored_sites').delete().eq('id', id);
+  if (error) return { deleted: false, reason: friendlyStorageError(error.message) };
+  return { deleted: true, reason: '' };
+}
+
+export async function updateMonitoredSiteStatus(id: string, status: 'healthy' | 'issues' | 'down', statusCode: number | null) {
+  let supabase;
+  try { supabase = getSupabase(); } catch { return; }
+  if (!supabase) return;
+  await supabase.from('monitored_sites').update({
+    last_status: status,
+    last_status_code: statusCode,
+    last_checked_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  }).eq('id', id);
+}
+
+export async function getDueMonitoredSites(limit: number = 5) {
+  let supabase;
+  try { supabase = getSupabase(); } catch { return []; }
+  if (!supabase) return [];
+
+  // Active sites
+  const { data, error } = await supabase.from('monitored_sites').select('*').eq('is_active', true);
+  if (error || !data) return [];
+
+  const now = Date.now();
+  const due = (data as any[]).filter(site => {
+    if (!site.last_checked_at) return true;
+    const lastChecked = new Date(site.last_checked_at).getTime();
+    const intervalMs = (site.check_interval_minutes || 60) * 60 * 1000;
+    return (now - lastChecked) >= intervalMs;
+  });
+
+  return due.slice(0, limit).map(mapMonitoredSiteRow);
 }

@@ -44,3 +44,22 @@ create index if not exists website_issue_tracking_updated_at_idx
   on public.website_issue_tracking (updated_at desc);
 alter table public.website_issue_tracking enable row level security;
 -- No public policies: all issue workflow writes run through authenticated server routes.
+
+-- MONITORED WEBSITES (Phase 4A)
+create table if not exists public.monitored_sites (
+  id uuid primary key default gen_random_uuid(),
+  url text not null unique,
+  name text not null default '',
+  is_active boolean not null default true,
+  crawl_limit integer not null default 30 check (crawl_limit between 10 and 500),
+  check_interval_minutes integer not null default 60 check (check_interval_minutes >= 5),
+  alert_email text not null default '',
+  last_status text not null default 'unknown' check (last_status in ('healthy', 'issues', 'down', 'unknown')),
+  last_status_code integer,
+  last_checked_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists monitored_sites_active_checked_idx
+  on public.monitored_sites (is_active, last_checked_at);
+alter table public.monitored_sites enable row level security;

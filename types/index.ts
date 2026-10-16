@@ -92,3 +92,18 @@ export type IssueTrackingRecord = {
   notes: string;
   updatedAt: string;
 };
+
+export type MonitoredSite = {
+  id: string;
+  url: string;
+  name?: string;
+  isActive: boolean;
+  crawlLimit: number;
+  checkIntervalMinutes: number;
+  alertEmail?: string;
+  lastStatus: 'healthy' | 'issues' | 'down' | 'unknown';
+  lastStatusCode?: number | null;
+  lastCheckedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};

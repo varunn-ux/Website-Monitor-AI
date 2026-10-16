@@ -7,6 +7,8 @@ import { IssueExplorer } from '@/components/issue-explorer';
 import { AnalyticsDashboard } from '@/components/analytics-dashboard';
 import { explainPageSpeedError, uniqueActivities } from '@/lib/presentation';
 import { AuthControls } from '@/components/auth-controls';
+import { MonitoredWebsites } from '@/components/monitored-websites';
+import { normalizeComparisonUrl } from '@/lib/url-identity';
 
 type StreamEvent =
   | { type: 'activity'; activity: ScanActivity }
@@ -121,18 +123,37 @@ export default function Home() {
   const issueCount = useMemo(() => current ? (current.detailedIssues?.length ?? (current.linkIssues.length + current.seoPages.reduce((sum, p) => sum + p.issues.length, 0))) : 0, [current]);
   const savedActivities = uniqueActivities(current?.activities);
   const visibleActivities = busy ? uniqueActivities(activities) : (savedActivities.length ? savedActivities : uniqueActivities(activities));
-  const previousScan = useMemo(() => {
-    if (!current) return null;
-    const rootHost = (value: string) => { try { return new URL(value).hostname.toLowerCase().replace(/^www\./, ''); } catch { return value; } };
-    return history
-      .filter((item) => item.id !== current.id && item.checkedAt < current.checkedAt && rootHost(item.siteUrl) === rootHost(current.siteUrl))
-      .sort((a, b) => b.checkedAt.localeCompare(a.checkedAt))[0] ?? null;
-  }, [current, history]);
+ 
+  
+const previousScan = useMemo(() => {
+  if (!current) return null;
+
+  const currentUrl = normalizeComparisonUrl(current.siteUrl);
+
+  return (
+    history
+      .filter(
+        (item) =>
+          item.id !== current.id &&
+          item.checkedAt < current.checkedAt &&
+          normalizeComparisonUrl(item.siteUrl) === currentUrl
+      )
+      .sort(
+        (a, b) =>
+          b.checkedAt.localeCompare(a.checkedAt)
+      )[0] ?? null
+  );
+}, [current, history]);
+
   return <main className="min-h-screen pb-12">
     <header className="border-b border-slate-200 bg-white"><div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-5"><div className="flex items-center gap-3"><div className="rounded-xl bg-brand-700 p-2.5 text-white"><Activity size={23}/></div><div><p className="text-lg font-bold tracking-tight">Website Monitor <span className="text-brand-700">AI</span></p><p className="text-xs text-slate-500">Health · Links · SEO · Performance</p></div></div><div className="flex items-center gap-2"><AuthControls/><button onClick={runScan} disabled={busy} className="inline-flex items-center gap-2 rounded-xl bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-800">{busy ? <RefreshCw className="animate-spin" size={16}/> : <RefreshCw size={16}/>} {busy ? 'Scanning website…' : 'Run scan'}</button></div></div></header>
     <div className="mx-auto max-w-7xl px-5 py-8">
       <div className="mb-7 flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><p className="text-sm font-semibold uppercase tracking-[.18em] text-brand-700">Monitoring dashboard</p><h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Your website, at a glance.</h1><p className="mt-2 max-w-2xl text-slate-500">Live scan timeline, configurable crawling, detailed findings, and practical WordPress / Elementor fixes.</p></div><div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600"><div className="flex items-center gap-2"><Clock3 size={16}/><span>{current ? `Last checked ${timeLabel(current.checkedAt)}` : 'No scans yet'}</span></div></div></div>
       {error && <div className="mb-5 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><AlertTriangle size={18} className="mt-0.5 shrink-0"/><div><strong>Scan failed</strong><p className="mt-1">{error}</p><p className="mt-1 text-red-700">Check your environment variables and server logs.</p></div></div>}
+
+      <div className="mb-6">
+        <MonitoredWebsites onSelectSite={(url) => setSiteUrlInput(url)} selectedUrl={siteUrlInput} />
+      </div>
 
       <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4"><h2 className="font-bold">Crawl configuration</h2><p className="mt-1 text-sm text-slate-500">Choose how deep the next scan should go. Higher limits may take longer and send more requests to your website.</p></div>

@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { Activity, BarChart3, CircleAlert, Clock3, Gauge } from 'lucide-react';
 import type { IssueCategory, IssueDetail, ScanResult } from '@/types';
 import { explainPageSpeedError, hasLighthouseData } from '@/lib/presentation';
+import { normalizeComparisonUrl } from '@/lib/url-identity';
 
 type Props = { current: ScanResult; history: ScanResult[] };
 type ScoreKey = 'performance' | 'accessibility' | 'bestPractices' | 'seo';
@@ -17,12 +18,9 @@ const SCORE_SERIES: ScoreSeries[] = [
 ];
 
 function sameWebsite(first: string, second: string) {
-  try {
-    const cleanHost = (value: string) => new URL(value).hostname.toLowerCase().replace(/^www\./, '');
-    return cleanHost(first) === cleanHost(second);
-  } catch {
-    return first === second;
-  }
+  return (
+    normalizeComparisonUrl(first) === normalizeComparisonUrl(second)
+  );
 }
 
 function getFindings(scan: ScanResult): IssueDetail[] {

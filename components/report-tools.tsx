@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp, FileSpreadsheet, FileText, GitCompareArrows, Minus,
 import type { IssueDetail, ScanResult } from '@/types';
 import { getCmsGuidance } from '@/lib/cms-guidance';
 import { explainPageSpeedError, hasLighthouseData, uniqueActivities } from '@/lib/presentation';
+import { normalizeComparisonUrl } from '@/lib/url-identity';
 
 type Props = { current: ScanResult; previous: ScanResult | null; history?: ScanResult[] };
 
@@ -42,11 +43,9 @@ function normalizedIssueKey(issue: IssueDetail) {
     .replace(/\s+/g, ' ').trim();
   return `${path}|${title}`;
 }
+
 function sameSite(a: string, b: string) {
-  try {
-    const host = (value: string) => new URL(value).hostname.toLowerCase().replace(/^www\./, '');
-    return host(a) === host(b);
-  } catch { return a === b; }
+  return normalizeComparisonUrl(a) === normalizeComparisonUrl(b);
 }
 function deltaText(current: number | null | undefined, previous: number | null | undefined, digits = 0, suffix = '') {
   if (current == null || previous == null) return 'Unavailable';

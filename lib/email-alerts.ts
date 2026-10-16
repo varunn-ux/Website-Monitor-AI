@@ -1,4 +1,5 @@
 import type { IssueDetail, ScanResult } from '@/types';
+import { normalizeComparisonUrl } from '@/lib/url-identity';
 
 export type EmailAlertOutcome = {
   needed: boolean;
@@ -23,7 +24,7 @@ function escapeHtml(value: string) {
 }
 
 /** Sends one alert for newly detected critical issues or a transition to website-down. */
-export async function sendCriticalIssueEmail(scan: ScanResult, previous: ScanResult | null): Promise<EmailAlertOutcome> {
+export async function sendCriticalIssueEmail(scan: ScanResult, previous: ScanResult | null, recipientOverride?: string): Promise<EmailAlertOutcome> {
   const critical = scan.detailedIssues.filter((issue) => issue.severity === 'critical');
   const previousCritical = new Set((previous?.detailedIssues ?? []).filter((issue) => issue.severity === 'critical').map(signature));
   const newCritical = critical.filter((issue) => !previousCritical.has(signature(issue)));
@@ -32,7 +33,9 @@ export async function sendCriticalIssueEmail(scan: ScanResult, previous: ScanRes
   if (!needed) return { needed: false, sent: false, message: 'No new critical issue or new website-down event; no email needed.' };
 
   const apiKey = process.env.RESEND_API_KEY?.trim();
-  const recipientList = (process.env.ALERT_EMAIL_TO ?? '').split(',').map((item) => item.trim()).filter(Boolean);
+  const configuredRecipients = (process.env.ALERT_EMAIL_TO ?? '').split(',').map((item) => item.trim()).filter(Boolean);
+  const overrideList = (recipientOverride ?? '').split(',').map((item) => item.trim()).filter(Boolean);
+  const recipientList = overrideList.length ? overrideList : configuredRecipients;
   const from = process.env.ALERT_EMAIL_FROM?.trim();
   if (!apiKey || !recipientList.length || !from) {
     return { needed: true, sent: false, message: 'Critical issue detected, but email alerts are not configured. Set RESEND_API_KEY, ALERT_EMAIL_TO, and ALERT_EMAIL_FROM.' };
@@ -60,7 +63,19 @@ export async function sendCriticalIssueEmail(scan: ScanResult, previous: ScanRes
   }
 }
 
-export function findPreviousScan(scan: ScanResult, history: ScanResult[]) {
-  return history.filter((item) => item.id !== scan.id && item.checkedAt < scan.checkedAt && hostOf(item.siteUrl) === hostOf(scan.siteUrl))
+
+export function findPreviousScan(
+  scan: ScanResult,
+  history: ScanResult[]
+) {
+  const currentUrl = normalizeComparisonUrl(scan.siteUrl);
+
+  return history
+    .filter(
+      (item) =>
+        item.id !== scan.id &&
+        item.checkedAt < scan.checkedAt &&
+        normalizeComparisonUrl(item.siteUrl) === currentUrl
+    )
     .sort((a, b) => b.checkedAt.localeCompare(a.checkedAt))[0] ?? null;
 }
