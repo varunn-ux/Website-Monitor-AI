@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity, AlertCircle, AlertTriangle, ArrowUpRight, CheckCircle2, Clock3, Database, Gauge, Globe, Link2, RefreshCw, Search, ShieldCheck, Sparkles, Zap, TerminalSquare, ChevronDown } from 'lucide-react';
+import { Activity, AlertCircle, AlertTriangle, ArrowUpRight, CheckCircle2, Clock3, Database, Gauge, Globe, Link2, RefreshCw, Search, ShieldCheck, Sparkles, Zap, TerminalSquare, ChevronDown, Mail } from 'lucide-react';
 import type { ScanActivity, ScanResult } from '@/types';
 import { ReportTools, ScanComparison } from '@/components/report-tools';
 import { IssueExplorer } from '@/components/issue-explorer';
@@ -45,6 +45,26 @@ export default function Home() {
   const [siteUrlInput, setSiteUrlInput] = useState('');
   const [crawlLimit, setCrawlLimit] = useState('30');
   const [includeSitemap, setIncludeSitemap] = useState(false);
+  const [testEmailSending, setTestEmailSending] = useState(false);
+  const [testEmailMsg, setTestEmailMsg] = useState('');
+
+  const sendTestEmail = async () => {
+    setTestEmailSending(true);
+    setTestEmailMsg('');
+    try {
+      const response = await fetch('/api/test-email', { method: 'POST' });
+      const data = await response.json();
+      if (response.ok && data.ok) {
+        setTestEmailMsg(`✅ ${data.message}`);
+      } else {
+        setTestEmailMsg(`❌ ${data.error || 'Failed to send test email.'}`);
+      }
+    } catch (err) {
+      setTestEmailMsg(`❌ ${err instanceof Error ? err.message : 'Network error'}`);
+    } finally {
+      setTestEmailSending(false);
+    }
+  };
   const loadHistory = useCallback(async () => {
     try {
       const response = await fetch('/api/history', { cache: 'no-store' });
@@ -146,9 +166,16 @@ const previousScan = useMemo(() => {
 }, [current, history]);
 
   return <main className="min-h-screen pb-12">
-    <header className="border-b border-slate-200 bg-white"><div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-5"><div className="flex items-center gap-3"><div className="rounded-xl bg-brand-700 p-2.5 text-white"><Activity size={23}/></div><div><p className="text-lg font-bold tracking-tight">Website Monitor <span className="text-brand-700">AI</span></p><p className="text-xs text-slate-500">Health · Links · SEO · Performance</p></div></div><div className="flex items-center gap-2"><AuthControls/><button onClick={runScan} disabled={busy} className="inline-flex items-center gap-2 rounded-xl bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-800">{busy ? <RefreshCw className="animate-spin" size={16}/> : <RefreshCw size={16}/>} {busy ? 'Scanning website…' : 'Run scan'}</button></div></div></header>
+    <header className="border-b border-slate-200 bg-white"><div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-5 py-5"><div className="flex items-center gap-3"><div className="rounded-xl bg-brand-700 p-2.5 text-white"><Activity size={23}/></div><div><p className="text-lg font-bold tracking-tight">Website Monitor <span className="text-brand-700">AI</span></p><p className="text-xs text-slate-500">Health · Links · SEO · Performance</p></div></div><div className="flex items-center gap-2"><button type="button" onClick={sendTestEmail} disabled={testEmailSending} title="Send a verification email using Resend" className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-60">{testEmailSending ? <RefreshCw className="animate-spin" size={13}/> : <Mail size={13}/>} {testEmailSending ? 'Sending…' : 'Test Email'}</button><AuthControls/><button onClick={runScan} disabled={busy} className="inline-flex items-center gap-2 rounded-xl bg-brand-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-800">{busy ? <RefreshCw className="animate-spin" size={16}/> : <RefreshCw size={16}/>} {busy ? 'Scanning website…' : 'Run scan'}</button></div></div></header>
     <div className="mx-auto max-w-7xl px-5 py-8">
-      <div className="mb-7 flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><p className="text-sm font-semibold uppercase tracking-[.18em] text-brand-700">Monitoring dashboard</p><h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Your website, at a glance.</h1><p className="mt-2 max-w-2xl text-slate-500">Live scan timeline, configurable crawling, detailed findings, and practical WordPress / Elementor fixes.</p></div><div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600"><div className="flex items-center gap-2"><Clock3 size={16}/><span>{current ? `Last checked ${timeLabel(current.checkedAt)}` : 'No scans yet'}</span></div></div></div>
+      {testEmailMsg && (
+        <div className={`mb-5 rounded-xl border p-4 text-xs font-medium flex items-center justify-between ${testEmailMsg.startsWith('✅') ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-800'}`}>
+          <span>{testEmailMsg}</span>
+          <button onClick={() => setTestEmailMsg('')} className="ml-4 underline hover:no-underline">Dismiss</button>
+        </div>
+      )}
+      <div className="mb-7 flex flex-col justify-between gap-4 md:flex-row md:items-end">
+<div><p className="text-sm font-semibold uppercase tracking-[.18em] text-brand-700">Monitoring dashboard</p><h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Your website, at a glance.</h1><p className="mt-2 max-w-2xl text-slate-500">Live scan timeline, configurable crawling, detailed findings, and practical WordPress / Elementor fixes.</p></div><div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600"><div className="flex items-center gap-2"><Clock3 size={16}/><span>{current ? `Last checked ${timeLabel(current.checkedAt)}` : 'No scans yet'}</span></div></div></div>
       {error && <div className="mb-5 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><AlertTriangle size={18} className="mt-0.5 shrink-0"/><div><strong>Scan failed</strong><p className="mt-1">{error}</p><p className="mt-1 text-red-700">Check your environment variables and server logs.</p></div></div>}
 
       <div className="mb-6">
