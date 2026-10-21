@@ -396,9 +396,7 @@ async function getAiRecommendations(siteUrl: string, uptimeOk: boolean, linkIssu
     return fallback;
   }
   const configuredModel = (process.env.GEMINI_MODEL || '').trim().replace(/^models\//i, '');
-  const isRetiredDefault = configuredModel.toLowerCase() === 'gemini-2.5-flash';
-  const model = !configuredModel || isRetiredDefault ? 'gemini-3.8-flash' : configuredModel;
-  if (isRetiredDefault) addActivity('AI analysis', 'The local GEMINI_MODEL is set to the older gemini-2.5-flash name. Using gemini-3.8-flash for this scan; update .env.local to keep the setting consistent.', 'warning');
+  const model = configuredModel || 'gemini-3.8-flash';
   addActivity('AI analysis', `Sending a compact report to Gemini (${model}).`);
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
