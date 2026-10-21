@@ -82,13 +82,13 @@ Setting the URL and secret key alone does **not** create a database table. The S
 
 1. Open https://supabase.com/dashboard and select the same project used in `.env.local`.
 2. In the left navigation, open **SQL Editor** and choose **New query**.
-3. Open `supabase-schema.sql` from this project and copy the entire file into the SQL Editor.
-4. Click **Run**. Confirm there are `public.website_scans`, `public.website_issue_tracking`, `public.monitored_sites`, and `public.cron_scan_runs` tables under **Table Editor**.
+3. Open the single SQL file at `public/supabase-schema.sql` and copy the entire file into the SQL Editor (or download it from the dashboard setup link).
+4. Click **Run**. The same idempotent script works for a fresh project and existing installations, preserves existing scan and issue data, and creates/upgrades `public.website_scans`, `public.website_issue_tracking`, `public.monitored_sites`, and `public.cron_scan_runs`.
 5. In **Project Settings → API Keys**, copy the project URL and the server-side secret key (`sb_secret_...`) or legacy `service_role` key. Use a key from the same project.
 6. Set those values in `.env.local`, save the file, stop the dev server with `Ctrl + C`, and start it again using `npm run dev`.
 7. Open the dashboard and run a fresh scan. The history status should report that the table is ready and the new report should appear under **Recent scan history**.
 
-For an existing Phase 3 database, run `supabase-phase4-migration.sql` instead of resetting or dropping data. It adds the hostname index/data, daily interval constraint, monitored-site table, and cron idempotency table while preserving existing records. If Supabase says it cannot find a table or column in the schema cache, refresh/reload the dashboard and retry.
+There is only one SQL setup file; no separate migration file is needed. Re-running it is safe and does not drop existing data. If Supabase says it cannot find a table or column in the schema cache, refresh/reload the dashboard and retry.
 
 > Important: credentials shared in chat, screenshots, source code, or a public repository should be rotated. Do not commit `.env.local` to GitHub.
 
@@ -166,7 +166,7 @@ The report dependencies (`jspdf`, `jspdf-autotable`, and `exceljs`) are included
 
 - Each finding has an **Issue status & ownership** panel with status (Open, In progress, Fixed, Ignored), owner/assignee, and team notes. Save to keep the workflow data in Supabase across visits and future scans.
 - Tracking keys are derived from category, normalized issue title and URL path, and are scoped to a normalized hostname. This gives repeat findings a persistent workflow record across scans without mixing separate sites. If the issue workflow table is missing, the dashboard shows a clear schema setup message.
-- The updated `supabase-schema.sql` creates `public.website_issue_tracking`, `public.monitored_sites`, and `public.cron_scan_runs` in addition to scan history. Run the **full updated SQL file** once in the Supabase SQL Editor; existing installations should run `supabase-phase4-migration.sql` to apply additive updates. Existing sub-daily intervals are raised to 1440 minutes.
+- The single `public/supabase-schema.sql` creates/upgrades all four application tables and indexes. Use this same file for new and existing databases. Existing sub-daily intervals are raised to 1440 minutes without deleting data.
 - Owners are stored as labels (for example, `Web Team` or `Amit`) rather than automatically linked to an authenticated user account. The authenticated team members can view and edit workflow records; keep user creation restricted to trusted teammates.
 
 ### Phase 3 environment variables
@@ -221,7 +221,7 @@ lib/
   storage.ts                 # Supabase persistence and diagnostics
 types/index.ts               # Shared types
 middleware.ts                # Protects dashboard/API; cron uses CRON_SECRET
-supabase-schema.sql          # One-time history table setup (also in public/ for download)
+public/supabase-schema.sql   # Single idempotent setup/upgrade script and dashboard download
 vercel.json                  # Daily cron schedule
 ```
 

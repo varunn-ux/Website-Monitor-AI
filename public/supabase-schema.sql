@@ -1,6 +1,8 @@
--- ONE-TIME SETUP
+-- ONE-TIME SETUP AND SAFE UPGRADES
 -- Supabase Dashboard -> SQL Editor -> New query -> paste this complete file -> Run.
--- This creates the table used by Website Monitor AI to persist complete scan reports.
+-- This single idempotent script supports fresh projects and upgrades existing data.
+-- It creates the tables used for scan history, issue tracking, monitored sites,
+-- and scheduled-run deduplication.
 -- The app accesses it only from server routes using SUPABASE_SERVICE_ROLE_KEY.
 -- Never put the service-role/secret key in a NEXT_PUBLIC_* variable.
 
@@ -76,9 +78,11 @@ create table if not exists public.monitored_sites (
 create index if not exists monitored_sites_active_checked_idx
   on public.monitored_sites (is_active, last_checked_at, created_at);
 
+-- Safe upgrade for databases that already have monitored_sites.
 update public.monitored_sites set check_interval_minutes = 1440 where check_interval_minutes < 1440;
 alter table public.monitored_sites drop constraint if exists monitored_sites_check_interval_minutes_check;
 alter table public.monitored_sites add constraint monitored_sites_check_interval_minutes_check check (check_interval_minutes >= 1440);
+
 alter table public.monitored_sites enable row level security;
 
 -- Idempotency key for the fallback daily SITE_URL scan when no monitored sites exist.

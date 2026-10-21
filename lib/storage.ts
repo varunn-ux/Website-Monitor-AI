@@ -23,13 +23,13 @@ function getSupabase() {
 function friendlyStorageError(message: string) {
   const lower = message.toLowerCase();
   if (lower.includes('cron_scan_runs')) {
-    return 'Scheduled scan claim table is missing. Run the current supabase-schema.sql or supabase-phase4-migration.sql file in Supabase SQL Editor.';
+    return 'Scheduled scan claim table is missing. Run public/supabase-schema.sql in Supabase SQL Editor.';
   }
   if (lower.includes('site_host') && lower.includes('website_scans')) {
-    return 'Scan history needs the site_host column for reliable multi-site queries. Run the current supabase-phase4-migration.sql file in Supabase SQL Editor.';
+    return 'Scan history needs the site_host column for reliable multi-site queries. Run public/supabase-schema.sql in Supabase SQL Editor.';
   }
   if (lower.includes('website_scans') && (lower.includes('schema cache') || lower.includes('could not find the table') || lower.includes('does not exist') || lower.includes('relation'))) {
-    return 'Supabase credentials are present, but public.website_scans has not been created (or its schema cache has not refreshed). In Supabase Dashboard → SQL Editor, run the included supabase-schema.sql file, then retry.';
+    return 'Supabase credentials are present, but public.website_scans has not been created (or its schema cache has not refreshed). In Supabase Dashboard → SQL Editor, run public/supabase-schema.sql, then retry.';
   }
   if (lower.includes('invalid api key') || lower.includes('invalid jwt') || lower.includes('jwt')) {
     return 'Supabase rejected the secret key. Verify that SUPABASE_SERVICE_ROLE_KEY is a server-side secret from the same Supabase project as the URL, then restart/redeploy.';
@@ -86,7 +86,7 @@ export async function getIssueTracking(siteUrl: string) {
   const { data, error } = await supabase.from('website_issue_tracking').select('site_host,issue_key,issue_title,category,severity,url,status,owner,notes,updated_at').eq('site_host', siteHost).order('updated_at', { ascending: false }).limit(5000);
   if (error) {
     const message = error.message.toLowerCase().includes('website_issue_tracking')
-      ? 'Issue workflow table is missing. Run the updated supabase-schema.sql file once in Supabase → SQL Editor.'
+      ? 'Issue workflow table is missing. Run public/supabase-schema.sql in Supabase → SQL Editor.'
       : friendlyStorageError(error.message);
     return { ready: false, records: [] as IssueTrackingRecord[], reason: message };
   }
@@ -110,7 +110,7 @@ export async function saveIssueTracking(input: { siteUrl: string; issueKey: stri
   const { data, error } = await supabase.from('website_issue_tracking').upsert(row, { onConflict: 'site_host,issue_key' }).select('site_host,issue_key,issue_title,category,severity,url,status,owner,notes,updated_at').single();
   if (error) {
     const message = error.message.toLowerCase().includes('website_issue_tracking')
-      ? 'Issue workflow table is missing. Run the updated supabase-schema.sql file once in Supabase → SQL Editor.'
+      ? 'Issue workflow table is missing. Run public/supabase-schema.sql in Supabase → SQL Editor.'
       : friendlyStorageError(error.message);
     return { saved: false, reason: message };
   }
