@@ -13,12 +13,14 @@ function activity(step: string, message: string, level: ScanActivity['level']): 
 }
 export async function POST(request: Request) {
   let requestOptions: ScanOptions = {};
+  let sendEmailAlert = true;
   try {
-    const body = await request.json() as { siteUrl?: unknown; crawlLimit?: unknown; includeSitemap?: unknown };
+    const body = await request.json() as { siteUrl?: unknown; crawlLimit?: unknown; includeSitemap?: unknown; sendEmailAlert?: unknown };
     if (typeof body.siteUrl === 'string' && body.siteUrl.trim()) requestOptions.siteUrl = body.siteUrl.trim();
     const requestedLimit = Number(body.crawlLimit);
     if (Number.isFinite(requestedLimit)) requestOptions.crawlLimit = Math.min(500, Math.max(10, Math.round(requestedLimit)));
     requestOptions.includeSitemap = body.includeSitemap === true;
+    if (typeof body.sendEmailAlert === 'boolean') sendEmailAlert = body.sendEmailAlert;
   } catch { /* empty/missing JSON means use safe defaults */ }
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
@@ -32,11 +34,17 @@ export async function POST(request: Request) {
       void (async () => {
         try {
           const result = await runWebsiteScan((entry) => send({ type: 'activity', activity: entry }), requestOptions);
-          const alert = await evaluateScanEmailAlert(result, { mode: 'manual' });
-          if (alert.activity) {
-            result.activities.push(alert.activity);
-            if (!alert.sent) result.warnings.push(alert.message);
-            send({ type: 'activity', activity: alert.activity });
+          if (sendEmailAlert) {
+            const alert = await evaluateScanEmailAlert(result, { mode: 'manual' });
+            if (alert.activity) {
+              result.activities.push(alert.activity);
+              if (!alert.sent) result.warnings.push(alert.message);
+              send({ type: 'activity', activity: alert.activity });
+            }
+          } else {
+            const skipActivity = activity('Scan email alert', 'Email notification disabled for this manual scan (quiet mode).', 'info');
+            result.activities.push(skipActivity);
+            send({ type: 'activity', activity: skipActivity });
           }
           const savingActivity = activity('Supabase history', 'Saving scan results and issue details to the database.', 'info');
           result.activities.push(savingActivity);

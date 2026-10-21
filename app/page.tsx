@@ -45,8 +45,23 @@ export default function Home() {
   const [siteUrlInput, setSiteUrlInput] = useState('');
   const [crawlLimit, setCrawlLimit] = useState('30');
   const [includeSitemap, setIncludeSitemap] = useState(false);
+  const [sendEmailAlert, setSendEmailAlert] = useState(true);
   const [testEmailSending, setTestEmailSending] = useState(false);
   const [testEmailMsg, setTestEmailMsg] = useState('');
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('wm_send_email_alert');
+      if (stored !== null) setSendEmailAlert(stored === 'true');
+    } catch { /* storage fallback */ }
+  }, []);
+
+  const handleToggleEmailAlert = (enabled: boolean) => {
+    setSendEmailAlert(enabled);
+    try {
+      localStorage.setItem('wm_send_email_alert', String(enabled));
+    } catch { /* storage fallback */ }
+  };
 
   const sendTestEmail = async () => {
     setTestEmailSending(true);
@@ -112,7 +127,7 @@ export default function Home() {
       }
     };
     try {
-      const response = await fetch('/api/scan/stream', { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ siteUrl: siteUrlInput.trim(), crawlLimit: Number(crawlLimit), includeSitemap }) });
+      const response = await fetch('/api/scan/stream', { method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ siteUrl: siteUrlInput.trim(), crawlLimit: Number(crawlLimit), includeSitemap, sendEmailAlert }) });
       if (!response.ok) throw new Error(`Scan API failed with HTTP ${response.status}.`);
       if (!response.body) throw new Error('This browser did not provide a streaming response. Refresh the page and try again.');
       const reader = response.body.getReader();
@@ -184,10 +199,29 @@ const previousScan = useMemo(() => {
 
       <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4"><h2 className="font-bold">Crawl configuration</h2><p className="mt-1 text-sm text-slate-500">Choose how deep the next scan should go. Higher limits may take longer and send more requests to your website.</p></div>
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px_minmax(0,1.2fr)] lg:items-end">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_220px] lg:items-end">
           <label className="block"><span className="mb-1.5 block text-xs font-semibold text-slate-600">Website URL to scan</span><input value={siteUrlInput} onChange={(event) => setSiteUrlInput(event.target.value)} disabled={busy} placeholder="https://example.com" type="url" inputMode="url" autoComplete="url" spellCheck={false} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100"/><span className="mt-1.5 block text-xs text-slate-500">Enter a public HTTP/HTTPS website. Each URL has its own scan history.</span></label>
           <label className="block"><span className="mb-1.5 block text-xs font-semibold text-slate-600">Maximum URLs to check</span><select value={crawlLimit} onChange={(event) => setCrawlLimit(event.target.value)} disabled={busy} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm"><option value="30">30 URLs · Quick scan</option><option value="50">50 URLs</option><option value="100">100 URLs</option><option value="250">250 URLs · Deep scan</option><option value="500">500 URLs · Maximum</option></select></label>
-          <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${includeSitemap ? 'border-brand-200 bg-brand-50/50' : 'border-slate-200 bg-slate-50'}`}><input type="checkbox" checked={includeSitemap} onChange={(event) => setIncludeSitemap(event.target.checked)} disabled={busy} className="mt-1 h-4 w-4 rounded border-slate-300 text-brand-700 focus:ring-brand-600"/><span><span className="block text-sm font-semibold text-slate-800">Include sitemap scan</span><span className="mt-1 block text-xs leading-5 text-slate-500">Checks robots.txt and common WordPress / SEO sitemap URLs, then uses same-site sitemap pages as crawl seeds. Maximum 500 page URLs to inspect; sitemap/robots fetches are separate discovery requests.</span></span></label>
+        </div>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${includeSitemap ? 'border-brand-200 bg-brand-50/50' : 'border-slate-200 bg-slate-50'}`}><input type="checkbox" checked={includeSitemap} onChange={(event) => setIncludeSitemap(event.target.checked)} disabled={busy} className="mt-1 h-4 w-4 rounded border-slate-300 text-brand-700 focus:ring-brand-600"/><span><span className="block text-sm font-semibold text-slate-800">Include sitemap scan</span><span className="mt-1 block text-xs leading-5 text-slate-500">Checks robots.txt and common WordPress / SEO sitemap URLs for crawl seeds.</span></span></label>
+          <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-colors ${sendEmailAlert ? 'border-brand-200 bg-brand-50/50' : 'border-slate-200 bg-slate-50'}`}>
+            <input type="checkbox" checked={sendEmailAlert} onChange={(event) => handleToggleEmailAlert(event.target.checked)} disabled={busy} className="mt-1 h-4 w-4 rounded border-slate-300 text-brand-700 focus:ring-brand-600"/>
+            <span>
+              <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+                <Mail size={15} className={sendEmailAlert ? 'text-brand-600' : 'text-slate-400'} />
+                Send email alert on changes
+                <span className={`ml-1 rounded px-1.5 py-0.5 text-[10px] font-bold tracking-wider ${sendEmailAlert ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-600'}`}>
+                  {sendEmailAlert ? 'ON' : 'OFF'}
+                </span>
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-slate-500">
+                {sendEmailAlert
+                  ? 'Sends an email only if this scan detects new issues or changes.'
+                  : 'Emails disabled for manual scans (quiet mode; saves quota).'}
+              </span>
+            </span>
+          </label>
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="max-w-3xl text-xs leading-5 text-slate-500">Security: private/local IPs, localhost and non-standard ports are blocked. Only same-site links and redirects are crawled.</p><button type="button" onClick={runScan} disabled={busy || !siteUrlInput.trim()} className="inline-flex items-center gap-2 rounded-xl bg-brand-700 px-5 py-3 text-sm font-semibold text-white hover:bg-brand-800 disabled:cursor-wait disabled:opacity-60">{busy ? <RefreshCw size={16} className="animate-spin"/> : <Globe size={16}/>} {busy ? 'Scanning…' : 'Scan this website'}</button></div>
         {current?.crawlConfig && <p className="mt-3 text-xs text-slate-500">Last scan settings: limit {current.crawlConfig.limit} URLs · Sitemap {current.crawlConfig.sitemapEnabled ? `enabled (${current.crawlConfig.sitemapUrlsDiscovered} URL(s) discovered)` : 'disabled'}.</p>}
