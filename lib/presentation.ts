@@ -11,6 +11,18 @@ export function hasLighthouseData(speed?: SpeedMetrics | null): boolean {
 export function explainPageSpeedError(error?: string | null): string {
   if (!error) return 'PageSpeed Insights did not return a usable Lighthouse result for this scan.';
   const message = error.toLowerCase();
+  if (/api key has expired|key.*expired/.test(message)) {
+    return 'The Google PageSpeed API key has expired. Create a replacement Google Cloud API key, update PAGESPEED_API_KEY in your local environment and Vercel project settings, then redeploy. The key value is never included in this report.';
+  }
+  if (/api key is invalid/.test(message)) {
+    return 'Google PageSpeed Insights rejected PAGESPEED_API_KEY. Verify it belongs to the intended Google Cloud project, replace it if needed, then redeploy.';
+  }
+  if (/api is not enabled/.test(message)) {
+    return 'Enable the PageSpeed Insights API for the Google Cloud project that owns PAGESPEED_API_KEY, then retry.';
+  }
+  if (/key restrictions block/.test(message)) {
+    return 'The API key restrictions block PageSpeed Insights. Allow the PageSpeed Insights API and configure application restrictions appropriate for server-side Vercel requests.';
+  }
   if (/http 429|quota|rate.limit/.test(message)) {
     return 'Google PageSpeed Insights rejected the request because of a quota or rate limit. Wait before retrying, then check the PageSpeed Insights API quota and key restrictions in Google Cloud Console.';
   }

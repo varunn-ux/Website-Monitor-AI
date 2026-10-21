@@ -274,17 +274,26 @@ async function requestPageSpeed(siteUrl: string, timeoutMs: number): Promise<Spe
 
   const response = await fetch(endpoint, { signal: AbortSignal.timeout(timeoutMs), cache: 'no-store' });
   if (!response.ok) {
-    let detail = '';
+    let providerMessage = '';
     try {
       const body = await response.json();
-      detail = typeof body?.error?.message === 'string' ? `: ${body.error.message}` : '';
+      providerMessage = typeof body?.error?.message === 'string' ? body.error.message : '';
     } catch { /* An error response is not always JSON. */ }
-    const hint = response.status === 429
-      ? ' Check Google Cloud quota/rate limits and avoid repeated parallel scans.'
-      : response.status === 403
-        ? ' Check that the PageSpeed Insights API is enabled and the API key is valid.'
-        : '';
-    throw new Error(`PageSpeed API returned HTTP ${response.status}${detail}.${hint}`);
+    const message = providerMessage.toLowerCase();
+    const reason = /api key.*expir|key.*expir/.test(message)
+      ? 'the API key has expired; replace PAGESPEED_API_KEY and redeploy'
+      : /api.?key.*invalid|invalid api.?key/.test(message)
+        ? 'the API key is invalid; verify the key in the correct Google Cloud project'
+        : /service_disabled|api.*not enabled|has not been used|disabled/.test(message)
+          ? 'the PageSpeed Insights API is not enabled for this Google Cloud project'
+          : /api_key_service_blocked|referer|ip address|key.*restrict/.test(message)
+            ? 'the API key restrictions block this PageSpeed Insights request'
+            : response.status === 429 || /quota|rate.?limit/.test(message)
+              ? 'the PageSpeed Insights quota or rate limit was reached'
+              : response.status === 403
+                ? 'Google Cloud denied access; check API enablement, project access, and key restrictions'
+                : `the request was rejected (HTTP ${response.status})`;
+    throw new Error(`PageSpeed API returned HTTP ${response.status}: ${reason}.`);
   }
 
   const data = await response.json();

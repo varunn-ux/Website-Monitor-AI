@@ -221,10 +221,12 @@ export async function deleteMonitoredSite(id: string) {
 export async function updateMonitoredSiteStatus(id: string, status: 'healthy' | 'issues' | 'down', statusCode: number | null) {
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase is not configured; monitored-site status cannot be updated.');
+  const completedAt = new Date().toISOString();
   const { error } = await supabase.from('monitored_sites').update({
     last_status: status,
     last_status_code: statusCode,
-    updated_at: new Date().toISOString(),
+    last_checked_at: completedAt,
+    updated_at: completedAt,
   }).eq('id', id);
   if (error) throw new Error(friendlyStorageError(error.message));
 }

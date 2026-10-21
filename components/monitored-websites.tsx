@@ -367,7 +367,7 @@ export function MonitoredWebsites({ onSelectSite, selectedUrl }: MonitoredWebsit
                     )}
                     {site.lastCheckedAt && (
                       <span className="text-slate-400">
-                        Last checked: {new Date(site.lastCheckedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        Last checked: {new Date(site.lastCheckedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
                       </span>
                     )}
                   </div>
