@@ -20,3 +20,15 @@ export function normalizeComparisonUrl(value: string): string {
     return input;
   }
 }
+
+export function normalizeSiteHost(value: string) {
+  try {
+    return new URL(value).hostname.toLowerCase().replace(/^www\./, '');
+  } catch {
+    return value.toLowerCase();
+  }
+}
+
+export function isSameSite(first: string, second: string) {
+  return normalizeSiteHost(first) === normalizeSiteHost(second);
+}

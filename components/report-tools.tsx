@@ -5,7 +5,7 @@ import { ArrowDown, ArrowUp, FileSpreadsheet, FileText, GitCompareArrows, Minus,
 import type { IssueDetail, ScanResult } from '@/types';
 import { getCmsGuidance } from '@/lib/cms-guidance';
 import { explainPageSpeedError, hasLighthouseData, uniqueActivities } from '@/lib/presentation';
-import { normalizeComparisonUrl } from '@/lib/url-identity';
+import { isSameSite } from '@/lib/url-identity';
 
 type Props = { current: ScanResult; previous: ScanResult | null; history?: ScanResult[] };
 
@@ -45,7 +45,7 @@ function normalizedIssueKey(issue: IssueDetail) {
 }
 
 function sameSite(a: string, b: string) {
-  return normalizeComparisonUrl(a) === normalizeComparisonUrl(b);
+  return isSameSite(a, b);
 }
 function deltaText(current: number | null | undefined, previous: number | null | undefined, digits = 0, suffix = '') {
   if (current == null || previous == null) return 'Unavailable';
@@ -138,7 +138,7 @@ function drawScoreTrendPng(scans: ScanResult[]) {
 function drawMetricTrendPng(title: string, scans: ScanResult[], metric: 'lcpMs' | 'cls' | 'tbtMs', unit: string, divisor = 1, digits = 2, unavailableReason?: string) {
   const canvas = document.createElement('canvas'); canvas.width = 760; canvas.height = 330;
   const context = canvas.getContext('2d');
-  if (!context) throw new Error('Your browser could not prepare a Core Web Vitals chart image.');
+  if (!context) throw new Error('Your browser could not prepare the LCP, CLS, and Lighthouse diagnostic chart image.');
   context.fillStyle = '#ffffff'; context.fillRect(0, 0, canvas.width, canvas.height);
   context.fillStyle = '#142b59'; context.font = 'bold 25px Arial'; context.fillText(title, 28, 38);
   context.fillStyle = '#64748b'; context.font = '16px Arial'; context.fillText(`Unit: ${unit} · lower is usually better`, 28, 65);
@@ -368,9 +368,9 @@ async function exportPdf(current: ScanResult, previous: ScanResult | null, histo
     const legendX = margin + seriesIndex * 165; doc.setFillColor(...series.color); doc.rect(legendX, pageHeight - 69, 9, 5, 'F'); doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(51, 65, 85); doc.text(series.label, legendX + 13, pageHeight - 64);
   });
 
-  // Core Web Vitals use separate mini charts because seconds, CLS scores, and milliseconds are different units.
+  // Keep LCP, CLS, and the separate Lighthouse TBT diagnostic in their original units.
   doc.addPage('a4', 'landscape');
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(17); doc.setTextColor(20, 43, 89); doc.text('Core Web Vitals — historical trends', margin, 48);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(17); doc.setTextColor(20, 43, 89); doc.text('LCP, CLS & Lighthouse diagnostics — historical trends', margin, 48);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(100, 116, 139); doc.text('Each metric has its own scale. These are Lighthouse lab measurements; compare similar scans.', margin, 62);
   const metricPanelGap = 14; const metricPanelWidth = (usableWidth - metricPanelGap * 2) / 3;
   const metricPanels = [
@@ -651,12 +651,12 @@ async function exportExcel(current: ScanResult, previous: ScanResult | null, his
   const severityImageId = workbook.addImage({ base64: severityChart, extension: 'png' });
   const trendImageId = workbook.addImage({ base64: trendChart, extension: 'png' });
   analytics.addImage(scoreImageId, 'A4:H20'); analytics.addImage(categoryImageId, 'I4:P22'); analytics.addImage(severityImageId, 'A22:H36'); analytics.addImage(trendImageId, 'I23:P43');
-  analytics.mergeCells('A45:P45'); analytics.getCell('A45').value = 'Core Web Vitals trend charts are available on the Core Web Vitals sheet. Numeric values are listed in Score History.';
+  analytics.mergeCells('A45:P45'); analytics.getCell('A45').value = 'LCP, CLS, and the Lighthouse TBT diagnostic charts are available on the Web Vitals & TBT sheet. Numeric values are listed in Score History.';
   analytics.getCell('A45').font = { name: 'Aptos', size: 11, bold: true, color: { argb: blue } };
   analytics.getCell('A45').alignment = { vertical: 'middle' }; analytics.getRow(45).height = 26;
   analytics.views = [{ showGridLines: false }];
   analytics.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
-  const webVitals = workbook.addWorksheet('Core Web Vitals', { views: [{ showGridLines: false }] });
+  const webVitals = workbook.addWorksheet('Web Vitals & TBT', { views: [{ showGridLines: false }] });
   webVitals.properties.tabColor = { argb: 'FF0891B2' };
   webVitals.columns = Array.from({ length: 18 }, () => ({ width: 12 }));
   webVitals.mergeCells('A1:R1'); webVitals.getCell('A1').value = 'CORE WEB VITALS — HISTORICAL TRENDS';
@@ -664,7 +664,7 @@ async function exportExcel(current: ScanResult, previous: ScanResult | null, his
   webVitals.mergeCells('A2:R2'); webVitals.getCell('A2').value = `${current.siteUrl} · Separate charts use separate units; lower values are generally better.`; webVitals.getCell('A2').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: paleBlue } }; webVitals.getCell('A2').font = { name: 'Aptos', size: 10, color: { argb: text }, italic: true }; webVitals.getRow(2).height = 28;
   const lcpChartId = workbook.addImage({ base64: drawMetricTrendPng('Largest Contentful Paint (seconds)', analyticsScans, 'lcpMs', 's', 1000, 2, current.speed?.error ? explainPageSpeedError(current.speed.error) : undefined), extension: 'png' });
   const clsChartId = workbook.addImage({ base64: drawMetricTrendPng('Cumulative Layout Shift (score)', analyticsScans, 'cls', 'score', 1, 3, current.speed?.error ? explainPageSpeedError(current.speed.error) : undefined), extension: 'png' });
-  const tbtChartId = workbook.addImage({ base64: drawMetricTrendPng('Total Blocking Time (milliseconds)', analyticsScans, 'tbtMs', 'ms', 1, 0, current.speed?.error ? explainPageSpeedError(current.speed.error) : undefined), extension: 'png' });
+  const tbtChartId = workbook.addImage({ base64: drawMetricTrendPng('Total Blocking Time (TBT · Lighthouse diagnostic)', analyticsScans, 'tbtMs', 'ms', 1, 0, current.speed?.error ? explainPageSpeedError(current.speed.error) : undefined), extension: 'png' });
   webVitals.addImage(lcpChartId, 'A4:F20'); webVitals.addImage(clsChartId, 'G4:L20'); webVitals.addImage(tbtChartId, 'M4:R20');
   webVitals.mergeCells('A22:R22'); webVitals.getCell('A22').value = 'Exact values, scan timestamps, URL coverage and issue counts are in the Score History sheet.'; webVitals.getCell('A22').font = { name: 'Aptos', size: 11, bold: true, color: { argb: blue } }; webVitals.getRow(22).height = 27;
   webVitals.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 };

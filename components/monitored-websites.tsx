@@ -37,7 +37,7 @@ export function MonitoredWebsites({ onSelectSite, selectedUrl }: MonitoredWebsit
   const [formUrl, setFormUrl] = useState('');
   const [formName, setFormName] = useState('');
   const [formCrawlLimit, setFormCrawlLimit] = useState(30);
-  const [formInterval, setFormInterval] = useState(60);
+  const [formInterval, setFormInterval] = useState(1440);
   const [formAlertEmail, setFormAlertEmail] = useState('');
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
@@ -204,7 +204,7 @@ export function MonitoredWebsites({ onSelectSite, selectedUrl }: MonitoredWebsit
             <h2 className="text-lg font-bold text-slate-900">Monitored Websites</h2>
           </div>
           <p className="mt-1 text-sm text-slate-500">
-            Websites checked automatically by background scheduled cron runs.
+            The configured Vercel cron checks due websites daily (up to three sites per run).
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -282,12 +282,11 @@ export function MonitoredWebsites({ onSelectSite, selectedUrl }: MonitoredWebsit
                 onChange={(e) => setFormInterval(Number(e.target.value))}
                 className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
-                <option value={15}>Every 15 minutes</option>
-                <option value={30}>Every 30 minutes</option>
-                <option value={60}>Every 1 hour</option>
-                <option value={360}>Every 6 hours</option>
-                <option value={1440}>Every 24 hours</option>
+                <option value={1440}>Every 24 hours (Daily)</option>
               </select>
+              <p className="mt-1 text-[10px] leading-3 text-slate-500">
+                This deployment is configured for once-daily scans at 03:00 UTC. Sub-daily intervals are unavailable.
+              </p>
             </div>
             <div className="lg:col-span-2">
               <label className="block text-xs font-medium text-slate-700">Alert Email (optional override)</label>
@@ -356,7 +355,7 @@ export function MonitoredWebsites({ onSelectSite, selectedUrl }: MonitoredWebsit
                   <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
                     <span className="truncate">{site.url}</span>
                     <span className="inline-flex items-center gap-1">
-                      <Clock size={11} /> Every {site.checkIntervalMinutes}m
+                      <Clock size={11} /> Daily
                     </span>
                     <span className="inline-flex items-center gap-1">
                       <Sliders size={11} /> {site.crawlLimit} pages
@@ -417,4 +416,3 @@ export function MonitoredWebsites({ onSelectSite, selectedUrl }: MonitoredWebsit
     </section>
   );
 }
-

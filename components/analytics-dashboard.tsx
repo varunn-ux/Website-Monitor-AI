@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react';
 import { Activity, BarChart3, CircleAlert, Clock3, Gauge } from 'lucide-react';
 import type { IssueCategory, IssueDetail, ScanResult } from '@/types';
 import { explainPageSpeedError, hasLighthouseData } from '@/lib/presentation';
-import { normalizeComparisonUrl } from '@/lib/url-identity';
+import { isSameSite } from '@/lib/url-identity';
 
 type Props = { current: ScanResult; history: ScanResult[] };
 type ScoreKey = 'performance' | 'accessibility' | 'bestPractices' | 'seo';
@@ -19,7 +19,7 @@ const SCORE_SERIES: ScoreSeries[] = [
 
 function sameWebsite(first: string, second: string) {
   return (
-    normalizeComparisonUrl(first) === normalizeComparisonUrl(second)
+    isSameSite(first, second)
   );
 }
 
@@ -226,7 +226,7 @@ export function AnalyticsDashboard({ current, history }: Props) {
       <div className="grid gap-4 lg:grid-cols-3">
         <MetricLine title="Largest Contentful Paint (LCP)" unit="s" values={lcpValues} digits={2} unavailableNote={pageSpeedNote} />
         <MetricLine title="Cumulative Layout Shift (CLS)" unit="score" values={clsValues} digits={3} unavailableNote={pageSpeedNote} />
-        <MetricLine title="Total Blocking Time (TBT)" unit="ms" values={tbtValues} digits={0} unavailableNote={pageSpeedNote} />
+        <MetricLine title="Total Blocking Time (TBT · Lighthouse diagnostic)" unit="ms" values={tbtValues} digits={0} unavailableNote={pageSpeedNote} />
       </div>
       <div className="flex items-start gap-2 rounded-xl border border-blue-100 bg-blue-50/70 p-3 text-xs leading-5 text-blue-900"><Clock3 size={15} className="mt-0.5 shrink-0" /> Lighthouse lab scores can vary from run to run. Review trends across multiple scans and make sure the crawl settings are comparable before drawing conclusions.</div>
     </section>

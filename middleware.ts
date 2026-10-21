@@ -13,7 +13,11 @@ export async function middleware(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const isLoginPage = pathname === '/login';
-  const allowedEmails = (process.env.DASHBOARD_ALLOWED_EMAILS ?? '').split(',').map((email) => email.trim().toLowerCase()).filter(Boolean);
+  const allowedEmails = (process.env.DASHBOARD_ALLOWED_EMAILS ?? '')
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+  const allowlistIsValid = allowedEmails.length > 0 && allowedEmails.every((email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
 
   if (!supabaseUrl || !anonKey) {
     if (isLoginPage) return NextResponse.next();
@@ -39,8 +43,30 @@ export async function middleware(request: NextRequest) {
   // getUser validates the session with Supabase; do not rely on a client-only gate.
   const { data: { user } } = await supabase.auth.getUser();
 
+  const isProduction = process.env.NODE_ENV === 'production';
   const email = user?.email?.toLowerCase() ?? '';
-  const userAllowed = Boolean(user) && (allowedEmails.length === 0 || allowedEmails.includes(email));
+
+  let userAllowed = false;
+  let denialCode = '';
+  let denialMessage = 'Please sign in to use Website Monitor AI.';
+
+  if (!user) {
+    userAllowed = false;
+    denialCode = '';
+    denialMessage = 'Please sign in to use Website Monitor AI.';
+  } else if (isProduction && !allowlistIsValid) {
+    // Fail closed in production if DASHBOARD_ALLOWED_EMAILS is empty or misconfigured
+    userAllowed = false;
+    denialCode = 'misconfigured';
+    denialMessage = 'Production dashboard access is locked because DASHBOARD_ALLOWED_EMAILS is missing, empty, or invalid.';
+  } else if (allowlistIsValid && !allowedEmails.includes(email)) {
+    userAllowed = false;
+    denialCode = 'denied';
+    denialMessage = 'This account is not on DASHBOARD_ALLOWED_EMAILS.';
+  } else {
+    // Authenticated user permitted
+    userAllowed = true;
+  }
 
   if (isLoginPage) {
     if (userAllowed) return NextResponse.redirect(new URL('/', request.url));
@@ -48,9 +74,11 @@ export async function middleware(request: NextRequest) {
   }
 
   if (!userAllowed) {
-    if (pathname.startsWith('/api/')) return NextResponse.json({ error: user ? 'This account is not on DASHBOARD_ALLOWED_EMAILS.' : 'Please sign in to use Website Monitor AI.' }, { status: user ? 403 : 401 });
+    if (pathname.startsWith('/api/')) {
+      return NextResponse.json({ error: denialMessage }, { status: user ? 403 : 401 });
+    }
     const loginUrl = new URL('/login', request.url);
-    if (user) loginUrl.searchParams.set('access', 'denied');
+    if (denialCode) loginUrl.searchParams.set('access', denialCode);
     return NextResponse.redirect(loginUrl);
   }
 

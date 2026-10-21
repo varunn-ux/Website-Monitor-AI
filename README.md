@@ -8,9 +8,9 @@ A beginner-friendly monitoring dashboard for a website you own or are authorized
 - **Detailed issue explanations:** severity, affected URL, what was detected, why it matters, and a recommended fix.
 - **More useful SEO inspection:** extracted title/description text, H1 text, canonical URL, and a capped list of image URLs missing alt attributes.
 - **Lighthouse finding details:** captures failed audits from PageSpeed when the API provides them.
-- **Gemini model update:** defaults to `gemini-3.8-flash` using the Google Gen AI SDK Interactions API.
+- **Gemini model:** defaults to the documented `gemini-3.8-flash` model using the Google Gen AI SDK Interactions API. API-key, permission, quota, and model failures are distinguished without logging provider error details or secrets.
 - **Better Supabase diagnostics:** explains when credentials are missing, when the table is not yet created, and when the key appears invalid.
-- **Persistent history:** one row per scan, with the full scan report stored in a `jsonb` column.
+- **Persistent history:** one row per scan, with the full scan report stored in a `jsonb` column and a normalized hostname for reliable multi-site queries.
 - **Phase 3 security:** Supabase Auth sign-in/sign-out and middleware protection for the dashboard and application APIs.
 - **Critical alerts:** optional Resend email notification for new critical findings or a website-down transition.
 - **Issue workflow:** persist Open / In progress / Fixed / Ignored status, owner/assignee, and team notes per issue.
@@ -19,9 +19,9 @@ A beginner-friendly monitoring dashboard for a website you own or are authorized
 ## Scan any public website + view charts
 
 - Enter a public website URL in **Website URL to scan**, then click **Scan this website**. The default value comes from `SITE_URL` in `.env.local`; if history exists, the most recently scanned website is preselected.
-- Every scan is saved with its own `site_url`, so switching between websites does not mix their results. The previous-scan comparison and trend graphs only use scans from the same hostname.
+- Every scan is saved with its own `site_url` and normalized hostname, so switching between websites does not mix their results. The previous-scan comparison and trend graphs only use scans from the same hostname (including `www` variants).
 - Choose a crawl limit (30, 50, 100, 250 or 500) and optionally enable sitemap discovery.
-- The **Analytics & trends** section displays the current Lighthouse scores, issue counts by category and severity, score trends, and separate LCP / CLS / TBT trends. Values are taken from the selected scan and saved Supabase history, not hard-coded demo data.
+- The **Analytics & trends** section displays the current Lighthouse scores, issue counts by category and severity, score trends, and separate LCP / CLS / TBT trends. TBT is a Lighthouse diagnostic, not a Core Web Vital; INP is not reported because this architecture has no valid field-data source for it.
 - PDF and Excel exports include visual analytics as well as the underlying values. Excel opens on the Overview sheet and includes Analytics charts, separate Core Web Vitals charts, and a Score History data sheet with the exact values used by the trends.
 - Public URL scanning uses server-side validation: HTTP/HTTPS only, no embedded credentials, private/local/reserved addresses blocked during URL and DNS checks, standard ports only, and same-site-only crawling/redirects. Only scan sites you own or are authorized to test. This validation is a defense-in-depth guard, not a replacement for authentication and rate-limiting before public deployment.
 
@@ -31,7 +31,7 @@ A beginner-friendly monitoring dashboard for a website you own or are authorized
 - A public website that you own/manage or have permission to monitor
 - Gemini API key (optional but recommended): https://aistudio.google.com/apikey
 - PageSpeed Insights API key (optional but recommended): https://console.cloud.google.com/apis/library/pagespeedonline.googleapis.com
-- Supabase project (optional; required for history that persists between visits and scheduled runs)
+- Supabase project (required for persistent history, multi-site scheduling, and scheduled-run deduplication)
 
 ## Install locally
 
@@ -83,12 +83,12 @@ Setting the URL and secret key alone does **not** create a database table. The S
 1. Open https://supabase.com/dashboard and select the same project used in `.env.local`.
 2. In the left navigation, open **SQL Editor** and choose **New query**.
 3. Open `supabase-schema.sql` from this project and copy the entire file into the SQL Editor.
-4. Click **Run**. Confirm there is a `public.website_scans` table under **Table Editor**.
+4. Click **Run**. Confirm there are `public.website_scans`, `public.website_issue_tracking`, `public.monitored_sites`, and `public.cron_scan_runs` tables under **Table Editor**.
 5. In **Project Settings → API Keys**, copy the project URL and the server-side secret key (`sb_secret_...`) or legacy `service_role` key. Use a key from the same project.
 6. Set those values in `.env.local`, save the file, stop the dev server with `Ctrl + C`, and start it again using `npm run dev`.
 7. Open the dashboard and run a fresh scan. The history status should report that the table is ready and the new report should appear under **Recent scan history**.
 
-If you just created the table and Supabase says it cannot find it in the schema cache, refresh/reload the dashboard and retry. If the warning remains, check the table is exactly `public.website_scans` and that the API key belongs to the same project as the URL.
+For an existing Phase 3 database, run `supabase-phase4-migration.sql` instead of resetting or dropping data. It adds the hostname index/data, daily interval constraint, monitored-site table, and cron idempotency table while preserving existing records. If Supabase says it cannot find a table or column in the schema cache, refresh/reload the dashboard and retry.
 
 > Important: credentials shared in chat, screenshots, source code, or a public repository should be rotated. Do not commit `.env.local` to GitHub.
 
@@ -109,7 +109,7 @@ The elapsed timer updates while waiting for slow requests such as Lighthouse. Th
 ## Scan behavior and issue details
 
 - Crawl limit: defaults to 30 URL requests; dashboard options are 30, 50, 100, 250 and 500. Sitemap scan is optional; discovery checks a bounded number of sitemap files.
-- Request timeout: 12 seconds per page; maximum inspectable HTML payload is 2 MB.
+- Request timeout: 12 seconds per request; HTML, robots, and sitemap response bodies are streamed and capped at 2 MB before parsing.
 - PageSpeed runs the mobile Lighthouse strategy and includes scores plus failed audits when available.
 - SEO checks include title, description, H1 count, image alt text, canonical URL, and HTTP status.
 - The issue report explains severity, evidence, impact, suggested action, and affected URL. Guidelines are not guarantees about search rankings.
@@ -117,16 +117,16 @@ The elapsed timer updates while waiting for slow requests such as Lighthouse. Th
 - A `429` from PageSpeed means the API rejected the request due to quota/rate limiting (or its specific response explanation). Check API enablement, quota, key restrictions, and avoid running repeated scans concurrently.
 - PageSpeed timeout handling: by default, the app allows 75 seconds for the first mobile Lighthouse request and retries once with a 45-second timeout if the first attempt times out. Configure `PAGESPEED_TIMEOUT_MS` between 30,000 and 120,000 milliseconds if needed. A timeout after the retry is displayed as **Unavailable**, never as a guessed score. When saved history contains an earlier successful audit for the same website, the dashboard, PDF, and Excel label those values as **historical** and show their scan time.
 - For a useful comparison, run scans with similar URL limits and sitemap settings. A scan that inspects fewer pages should not be assumed to have fixed all findings from a deeper crawl.
-- Gemini is optional. If `GEMINI_MODEL=gemini-2.5-flash` is still present in an old `.env.local`, this version temporarily maps that specific old setting to `gemini-3.8-flash` and logs a warning. Update `.env.local` to `GEMINI_MODEL=gemini-3.8-flash` and restart `npm run dev`. If Gemini returns `403` or says the project was denied access, the API project/key needs valid access; changing the model string alone cannot grant access. Rule-based recommendations remain available.
+- Gemini is optional. The configured model `gemini-3.8-flash` is listed in the [official Gemini model catalog](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash); it is not changed automatically. For `403`, check project access and API permissions; for `401`, check the key and its project; for quota errors, check project limits; for `404`, confirm model availability for that project. These provider failures are logged only by safe category. Rule-based recommendations remain available.
 
 ## Phase 1 — Reports and comparison
 
 The dashboard now includes the following Phase 1 features:
 
 - **Landscape PDF audit report:** Click **Download PDF (Landscape)** below the current scan summary. The redesigned A4 landscape PDF has a branded header, score cards, a compact overview, a findings index, separate wide tables for evidence/impact/recommended fixes, WordPress/Elementor guidance, SEO metadata, redirects, request errors, comparison, warnings, AI recommendations, and timestamped activity. Long text wraps within defined column widths rather than being squeezed into portrait columns.
-- **Formatted Excel workbook (.xlsx):** Click **Download Excel (.xlsx)**. This produces a real multi-sheet workbook with a styled **Overview**, **Analytics**, **Core Web Vitals**, **Score History**, **Detailed Findings**, **SEO Pages**, **Redirects**, **Request Errors**, **Scan Activity**, **Recommendations**, and (when a previous scan exists) **Previous Scan Comparison** sheets. Sheets have styled headers, sensible column widths, wrapped text, filters, frozen header rows, and severity highlighting. Start at Overview; use filters on Detailed Findings to prioritize items.
+- **Formatted Excel workbook (.xlsx):** Click **Download Excel (.xlsx)**. This produces a real multi-sheet workbook with a styled **Overview**, **Analytics**, **Web Vitals & TBT**, **Score History**, **Detailed Findings**, **SEO Pages**, **Redirects**, **Request Errors**, **Scan Activity**, **Recommendations**, and (when a previous scan exists) **Previous Scan Comparison** sheets. TBT is clearly labeled as a Lighthouse diagnostic, not a Core Web Vital. Sheets have styled headers, sensible column widths, wrapped text, filters, frozen header rows, and severity highlighting. Start at Overview; use filters on Detailed Findings to prioritize items.
 - **CSV export:** Click **CSV** when you need a simple, lightweight flat file. It remains available for systems that cannot read XLSX; for normal human review use the formatted Excel workbook.
-- **Compare with previous scan:** The dashboard picks the most recent earlier saved scan for the same website. It compares performance/accessibility/best-practices/SEO scores, LCP, CLS, TBT, finding counts, new findings, and findings no longer detected. A missing finding is not a guarantee that the underlying issue has been permanently fixed.
+- **Compare with previous scan:** The dashboard picks the most recent earlier saved scan for the same hostname, including `www` variants. It compares performance/accessibility/best-practices/SEO scores, LCP, CLS, Lighthouse TBT diagnostic, finding counts, new findings, and findings no longer detected. A missing finding is not a guarantee that the underlying issue has been permanently fixed.
 - **Redirect-aware crawling:** HTTP 301/302/303/307/308 redirects are followed with an eight-hop safety limit, and final HTML URLs are inspected. Redirects to unrelated hosts are not followed. Only URLs on the configured hostname or its `www` variant are crawled.
 - **Issue classification:** Lighthouse findings are mapped into performance, accessibility, SEO, links, availability, or best-practices categories. Severity is based on issue type and measured impact where available; a zero Lighthouse score alone is not treated as proof that an issue is high severity.
 
@@ -135,7 +135,7 @@ The report dependencies (`jspdf`, `jspdf-autotable`, and `exceljs`) are included
 ## Phase 2 — Crawling and issue triage
 
 - **Configurable crawl limit:** Use the dashboard's Crawl configuration selector to choose 30, 50, 100, 250, or 500 URL requests for the next scan. The API clamps values to 10–500 for safety. Larger scans can take longer and increase requests to your site. Sitemap/robots discovery requests are in addition to the page limit.
-- **Sitemap scan:** Enable the checkbox to inspect `robots.txt` and common WordPress/SEO sitemap locations (`/wp-sitemap.xml`, `/sitemap_index.xml`, and `/sitemap.xml`). Sitemap index files are followed up to a bounded number of sitemap documents; only same-site page URLs are used as crawl seeds. The configured limit applies to pages inspected; a bounded number of robots/sitemap discovery requests are additional. If no sitemap is readable, the internal-link crawl continues and the dashboard shows a warning.
+- **Sitemap scan:** Manual scans inspect `robots.txt` and common WordPress/SEO sitemap locations only when the checkbox is enabled; scheduled scans always enable the same bounded discovery routine. Sitemap index files are followed up to a bounded number of sitemap documents; only same-site page URLs are used as crawl seeds. Robots and sitemap bodies are capped at 2 MB, and discovery requests use the same timeout, redirect, and host protections. The configured limit applies to pages inspected; a bounded number of robots/sitemap discovery requests are additional. If no sitemap is readable, the internal-link crawl continues and the dashboard shows a warning.
 - **Search, filter and sort:** In Issues explained in detail, search finding titles, categories, affected URLs, evidence, impact, and recommended fixes. Filter by category or severity and sort by severity, category, title or URL.
 - **Duplicate grouping:** Similar findings with the same category and normalized title are grouped by default. Expand the group to inspect all occurrences and affected URLs. Uncheck the grouping box to review every finding individually. Grouping is a triage aid and does not delete details from the scan or exports.
 - **WordPress / Elementor repair guidance:** Each issue card includes targeted admin/editor steps when a common CMS fix path exists. PDF, Excel, and CSV exports include these steps too. The app only provides guidance; it does not log into WordPress or change the site.
@@ -146,15 +146,15 @@ The report dependencies (`jspdf`, `jspdf-autotable`, and `exceljs`) are included
 ### Login and dashboard protection
 
 - The dashboard and application API routes require a Supabase Auth session. An unauthenticated visitor is sent to `/login`; the APIs return HTTP 401. The scheduled `/api/cron` endpoint uses its own `CRON_SECRET` bearer-token check.
-- The login page uses Supabase email/password authentication. The app does not provide public sign-up; also disable **Allow new users to sign up** in Supabase Auth settings so strangers cannot register through the public Auth API. Create users yourself in Supabase Dashboard → **Authentication → Users → Add user**. `DASHBOARD_ALLOWED_EMAILS` can restrict the dashboard to a comma-separated allowlist; leave it empty only if you have disabled public sign-up and trust every Supabase Auth account in the project.
-- Add both `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` to `.env.local`. Optionally set `DASHBOARD_ALLOWED_EMAILS=admin@example.com,webteam@example.com` to restrict access to those exact email addresses. `SUPABASE_SERVICE_ROLE_KEY` remains server-only and must never use the `NEXT_PUBLIC_` prefix. After setting auth variables, restart `npm run dev`.
+- The login page uses Supabase email/password authentication. The app does not provide public sign-up; also disable **Allow new users to sign up** in Supabase Auth settings. Create users yourself in Supabase Dashboard → **Authentication → Users → Add user**.
+- Add both `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` to `.env.local`. Production requires a non-empty, syntactically valid `DASHBOARD_ALLOWED_EMAILS` allowlist; an empty or malformed list denies all dashboard and application API access. Set `DASHBOARD_ALLOWED_EMAILS=admin@example.com,webteam@example.com` to allow exact email addresses. `SUPABASE_SERVICE_ROLE_KEY` remains server-only and must never use the `NEXT_PUBLIC_` prefix. After setting auth variables, restart `npm run dev`.
 - For deployment, set your deployed site URL in Supabase Authentication → URL Configuration and add localhost / production URLs as appropriate.
 
 ### Email alert for critical issues
 
 - Uses Resend's email API. Configure `RESEND_API_KEY`, `ALERT_EMAIL_TO`, and `ALERT_EMAIL_FROM`. `ALERT_EMAIL_TO` can contain a comma-separated list of recipients; the sender address/domain must be verified with Resend.
-- Sends an alert when a new critical finding appears or when a website transitions into a down state. It compares with the previous saved scan for the same hostname to avoid sending the same alert after every scan. When the email provider is not configured or rejects a message, the live activity log and scan warnings explain the reason.
-- Alerts run after manual/streaming scans, the JSON scan endpoint, and the scheduled cron scan. For reliable duplicate suppression, keep Supabase scan history configured.
+- Manual scans send only when change detection finds a new/resolved finding, severity change, site status change, or Lighthouse score change. Scheduled scans send a digest every scheduled run, including when results are unchanged. Both compare against the previous saved scan for the same hostname. When the email provider is not configured or rejects a message, the live activity log and scan warnings explain the reason.
+- Alerts run after manual/streaming scans, the JSON scan endpoint, and the scheduled cron scan. Supabase history is required for scheduled-run claims and reliable duplicate suppression; overlapping cron requests atomically claim sites before scanning.
 - Email is optional; scans still finish if alert delivery fails.
 
 ### Performance trends dashboard
@@ -166,7 +166,7 @@ The report dependencies (`jspdf`, `jspdf-autotable`, and `exceljs`) are included
 
 - Each finding has an **Issue status & ownership** panel with status (Open, In progress, Fixed, Ignored), owner/assignee, and team notes. Save to keep the workflow data in Supabase across visits and future scans.
 - Tracking keys are derived from category, normalized issue title and URL path, and are scoped to a normalized hostname. This gives repeat findings a persistent workflow record across scans without mixing separate sites. If the issue workflow table is missing, the dashboard shows a clear schema setup message.
-- The updated `supabase-schema.sql` creates `public.website_issue_tracking` in addition to the existing scan history table. Run the **full updated SQL file** once in the Supabase SQL Editor. Re-running is safe for the provided `CREATE TABLE IF NOT EXISTS` statements and indexes.
+- The updated `supabase-schema.sql` creates `public.website_issue_tracking`, `public.monitored_sites`, and `public.cron_scan_runs` in addition to scan history. Run the **full updated SQL file** once in the Supabase SQL Editor; existing installations should run `supabase-phase4-migration.sql` to apply additive updates. Existing sub-daily intervals are raised to 1440 minutes.
 - Owners are stored as labels (for example, `Web Team` or `Amit`) rather than automatically linked to an authenticated user account. The authenticated team members can view and edit workflow records; keep user creation restricted to trusted teammates.
 
 ### Phase 3 environment variables
@@ -189,10 +189,10 @@ Do not expose the Supabase service-role key or Resend API key to the browser. `N
 2. Import it at https://vercel.com/new.
 3. Add the environment variables from `.env.local` in **Project Settings → Environment Variables**. Use the project root Supabase URL and keep secret keys server-side.
 4. Deploy; redeploy after changing environment variables.
-5. The included cron schedule is `0 3 * * *` UTC (08:30 India Standard Time) in `vercel.json`. Cron frequency depends on your Vercel plan.
+5. The included cron schedule is `0 3 * * *` UTC (08:30 India Standard Time) in `vercel.json`. Vercel Hobby supports cron at most once daily, so the app exposes only daily monitored-site intervals; the scheduler processes at most three due sites per invocation.
 6. The daily job uses `Authorization: Bearer <CRON_SECRET>`. Keep the value private and identical in the deployment environment.
 
-The scheduled job saves its report to Supabase when configured. Vercel cron does not run during local development.
+Supabase is required for scheduled scans: it stores scan history and atomically claims sites/runs so retries and overlapping cron requests do not duplicate work or email. Failed site attempts become due again at the next daily run. Vercel cron does not run during local development. This deployment does not support sub-daily intervals; using them requires a scheduler that invokes more frequently plus corresponding code/schema configuration changes.
 
 ## Project structure
 

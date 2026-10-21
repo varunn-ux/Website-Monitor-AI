@@ -1,5 +1,5 @@
 import type { ScanActivity, ScanResult } from '@/types';
-import { getHistory } from '@/lib/storage';
+import { getSiteHistory } from '@/lib/storage';
 import { findPreviousScan, sendScanAlertEmail, type ScanTriggerMode } from '@/lib/email-alerts';
 
 export type AlertRun = { activity?: ScanActivity; sent: boolean; needed: boolean; message: string };
@@ -19,7 +19,7 @@ export async function evaluateScanEmailAlert(
   options: AlertOptions = {}
 ): Promise<AlertRun> {
   const mode = options.mode ?? 'manual';
-  const history = await getHistory();
+  const history = await getSiteHistory(scan.siteUrl);
   const previous = findPreviousScan(scan, history.scans);
   const outcome = await sendScanAlertEmail(scan, previous, options);
 

@@ -1,36 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runWebsiteScan } from '@/lib/monitor';
-import { saveScan, getDueMonitoredSites, updateMonitoredSiteStatus } from '@/lib/storage';
+import { saveScan, claimDueMonitoredSites, updateMonitoredSiteStatus, claimDefaultScheduledScan } from '@/lib/storage';
 import { evaluateScanEmailAlert } from '@/lib/alert-runner';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
 export async function GET(request: NextRequest) {
-  const secret = process.env.CRON_SECRET;
-  const authHeader = request.headers.get('authorization');
-  const isVercelCron = request.headers.get('x-vercel-cron') === '1' || request.headers.get('user-agent')?.includes('vercel-cron');
-  const isSecretMatch = secret && authHeader === `Bearer ${secret}`;
-
-  if (!isSecretMatch && !isVercelCron) {
-    console.warn('[Cron] Unauthorized call attempt');
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const secret = process.env.CRON_SECRET?.trim();
+  if (!secret) {
+    console.error('[Cron] CRON_SECRET is not configured on the server. Failing closed.');
+    return NextResponse.json(
+      { error: 'CRON_SECRET is not configured on the server. Scheduled scans are disabled until configured.' },
+      { status: 500 }
+    );
   }
 
-  console.log('[Cron] Execution started. Checking due monitored sites...');
+  const authHeader = request.headers.get('authorization')?.trim();
+  const expectedAuth = `Bearer ${secret}`;
+
+  // Enforce strict Authorization: Bearer <CRON_SECRET>. Fail closed on missing or incorrect credentials.
+  if (!authHeader || authHeader !== expectedAuth) {
+    console.warn('[Cron] Unauthorized call attempt: invalid or missing Bearer token.');
+    return NextResponse.json({ error: 'Unauthorized: valid Bearer token required.' }, { status: 401 });
+  }
+
+  console.log('[Cron] Execution authorized. Processing due monitored sites...');
 
   try {
-    // 1. Check if there are active, due websites in monitored_sites table
-    // Process in a bounded batch of up to 3 to prevent timeouts on Vercel/serverless
-    const dueSites = await getDueMonitoredSites(3);
+    const schedule = await claimDueMonitoredSites(3);
+    if (!schedule.ready) {
+      return NextResponse.json({ error: schedule.reason || 'Monitored-site scheduling is unavailable.' }, { status: 503 });
+    }
 
-    if (dueSites.length > 0) {
+    if (schedule.hasMonitoredSites) {
       const results = [];
-      for (const site of dueSites) {
+      for (const site of schedule.sites) {
         try {
           const scan = await runWebsiteScan(undefined, {
             siteUrl: site.url,
             crawlLimit: site.crawlLimit,
+            includeSitemap: true,
           });
 
           const alert = await evaluateScanEmailAlert(scan, {
@@ -52,12 +62,17 @@ export async function GET(request: NextRequest) {
             storage,
           });
         } catch (scanError) {
-          results.push({
-            siteUrl: site.url,
-            status: 'down',
-            error: scanError instanceof Error ? scanError.message : 'Scan failed',
-          });
-          await updateMonitoredSiteStatus(site.id, 'down', 500);
+          const message = scanError instanceof Error ? scanError.message : 'Scan failed';
+          try {
+            await updateMonitoredSiteStatus(site.id, 'down', 500);
+            results.push({ siteUrl: site.url, status: 'down', error: message });
+          } catch (statusError) {
+            results.push({
+              siteUrl: site.url,
+              status: 'down',
+              error: `${message}; status update failed: ${statusError instanceof Error ? statusError.message : 'unknown database error'}`,
+            });
+          }
         }
       }
 
@@ -69,8 +84,16 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // 2. Fallback to default single-site scan if no monitored_sites are configured/due
-    const result = await runWebsiteScan();
+    const defaultSiteUrl = process.env.SITE_URL?.trim();
+    if (!defaultSiteUrl) {
+      return NextResponse.json({ ok: true, mode: 'multi-site', processed: 0, results: [] });
+    }
+    const claimed = await claimDefaultScheduledScan(defaultSiteUrl);
+    if (!claimed) {
+      return NextResponse.json({ ok: true, mode: 'default-site', skipped: true, reason: 'A scheduled scan for this website was already claimed today.' });
+    }
+
+    const result = await runWebsiteScan(undefined, { siteUrl: defaultSiteUrl, includeSitemap: true });
     const alert = await evaluateScanEmailAlert(result, { mode: 'scheduled' });
     if (alert.activity) {
       result.activities.push(alert.activity);

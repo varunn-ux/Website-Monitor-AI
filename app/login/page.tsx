@@ -15,9 +15,11 @@ export default function LoginPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    setShowSetupWarning(params.get('setup') === 'missing');
-    if (params.get('access') === 'denied') {
+    const access = params.get('access');
+    if (access === 'denied') {
       void getSupabaseBrowserClient().auth.signOut().then(() => setError('This account is not allowed to access the dashboard. Sign in with an approved account.')).catch(() => setError('This account is not allowed. Sign out in Supabase or clear this browser session, then sign in with an approved account.'));
+    } else if (access === 'misconfigured') {
+      void getSupabaseBrowserClient().auth.signOut().then(() => setError('Production access is locked: DASHBOARD_ALLOWED_EMAILS is empty or not configured on the server. Set DASHBOARD_ALLOWED_EMAILS to permit authorized accounts.')).catch(() => setError('Production access is locked: DASHBOARD_ALLOWED_EMAILS is empty or not configured on the server.'));
     }
   }, []);
 

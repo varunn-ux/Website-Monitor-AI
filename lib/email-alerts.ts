@@ -1,5 +1,6 @@
 import type { IssueDetail, ScanResult } from '@/types';
-import { normalizeComparisonUrl } from '@/lib/url-identity';
+import { isSameSite } from '@/lib/url-identity';
+import { getIssueTrackingKey } from '@/lib/issue-tracking';
 
 export type EmailAlertOutcome = {
   needed: boolean;
@@ -32,14 +33,7 @@ function hostOf(value: string) {
 }
 
 function signature(issue: IssueDetail) {
-  let path = '/';
-  try {
-    path = new URL(issue.url || 'https://example.invalid').pathname.toLowerCase().replace(/\/+$/, '') || '/';
-  } catch {
-    /* root fallback */
-  }
-  const title = issue.title.toLowerCase().replace(/\b\d+\/100\b/g, 'score').replace(/\s+/g, ' ').trim();
-  return `${issue.category}|${title}|${path}`;
+  return `${getIssueTrackingKey(issue)}|${issue.severity}`;
 }
 
 function escapeHtml(value: string) {
@@ -346,7 +340,7 @@ export async function sendCriticalIssueEmail(
 }
 
 export function findPreviousScan(scan: ScanResult, history: ScanResult[]) {
-  const currentUrl = normalizeComparisonUrl(scan.siteUrl);
+  const currentUrl = scan.siteUrl;
 
   return (
     history
@@ -354,7 +348,7 @@ export function findPreviousScan(scan: ScanResult, history: ScanResult[]) {
         (item) =>
           item.id !== scan.id &&
           item.checkedAt < scan.checkedAt &&
-          normalizeComparisonUrl(item.siteUrl) === currentUrl
+          isSameSite(item.siteUrl, currentUrl)
       )
       .sort((a, b) => b.checkedAt.localeCompare(a.checkedAt))[0] ?? null
   );

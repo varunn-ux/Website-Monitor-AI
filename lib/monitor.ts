@@ -12,14 +12,38 @@ const MAX_HTML_BYTES = 2_000_000;
 type ProgressHandler = (activity: ScanActivity) => void;
 
 async function fetchWithTimeout(url: string) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    return await fetch(url, { signal: controller.signal, redirect: 'manual', headers: { 'user-agent': 'WebsiteMonitoringAgent/1.2 (+site-owner monitoring)' }, cache: 'no-store' });
-  } finally { clearTimeout(timer); }
+  return fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS), redirect: 'manual', headers: { 'user-agent': 'WebsiteMonitoringAgent/1.2 (+site-owner monitoring)' }, cache: 'no-store' });
 }
 
 function isHtml(contentType: string | null) { return !!contentType?.toLowerCase().includes('text/html'); }
+async function readLimitedText(response: Response, maxBytes: number) {
+  const contentLength = Number(response.headers.get('content-length'));
+  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+    await response.body?.cancel();
+    throw new Error(`Response is too large to inspect safely (over ${Math.round(maxBytes / 1_000_000)} MB).`);
+  }
+  if (!response.body) return '';
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let bytesRead = 0;
+  let text = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytesRead += value.byteLength;
+      if (bytesRead > maxBytes) {
+        await reader.cancel();
+        throw new Error(`Response is too large to inspect safely (over ${Math.round(maxBytes / 1_000_000)} MB).`);
+      }
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  } finally {
+    reader.releaseLock();
+  }
+}
 function normalizeCrawlUrl(raw: string) {
   try {
     const url = new URL(raw);
@@ -83,10 +107,15 @@ async function getHtml(url: string, siteRoot: string): Promise<HtmlFetchResult> 
   if (redirectCodes.has(response.status) || !isHtml(type)) {
     return { response, html: '', finalUrl: currentUrl, redirects, ...(redirectNote ? { redirectNote } : {}) };
   }
-  const declared = Number(response.headers.get('content-length') ?? 0);
-  if (declared > MAX_HTML_BYTES) throw new Error('Page is too large to inspect safely (over 2 MB).');
-  const html = await response.text();
-  if (Buffer.byteLength(html, 'utf8') > MAX_HTML_BYTES) throw new Error('Page is too large to inspect safely (over 2 MB).');
+  let html: string;
+  try {
+    html = await readLimitedText(response, MAX_HTML_BYTES);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('too large')) {
+      throw new Error('Page is too large to inspect safely (over 2 MB).');
+    }
+    throw error;
+  }
   return { response, html, finalUrl: currentUrl, redirects, ...(redirectNote ? { redirectNote } : {}) };
 }
 
@@ -134,8 +163,13 @@ async function fetchSameSiteText(startUrl: string, siteRoot: string): Promise<{ 
       continue;
     }
     if (!response.ok) return { ok: false, status: response.status, text: '', finalUrl: currentUrl };
-    const text = await response.text();
-    if (Buffer.byteLength(text, 'utf8') > MAX_HTML_BYTES) return { ok: false, status: response.status, text: '', finalUrl: currentUrl };
+    let text: string;
+    try {
+      text = await readLimitedText(response, MAX_HTML_BYTES);
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('too large')) return { ok: false, status: response.status, text: '', finalUrl: currentUrl };
+      throw error;
+    }
     return { ok: true, status: response.status, text, finalUrl: currentUrl };
   }
   return { ok: false, status: 0, text: '', finalUrl: currentUrl };
@@ -309,7 +343,7 @@ async function checkSpeed(siteUrl: string, onRetry?: (message: string) => void):
 }
 
 function explainSeoIssue(issue: string, page: PageSeo): Omit<IssueDetail, 'id' | 'url' | 'source'> {
-  if (issue === 'Missing page title') return { category: 'seo', severity: 'high', title: issue, what: 'This page does not have a <title> element in its HTML.', impact: 'Search engines and browser tabs use the title to understand and label the page.', recommendation: 'Add a unique, descriptive title in the page SEO settings. Aim for about 30–60 characters and describe the actual page content.' };
+  if (issue === 'Missing page title') return { category: 'seo', severity: 'medium', title: issue, what: 'This page does not have a <title> element in its HTML.', impact: 'Search engines and browser tabs use the title to understand and label the page.', recommendation: 'Add a unique, descriptive title in the page SEO settings. Aim for about 30–60 characters and describe the actual page content.' };
   if (issue.startsWith('Title length')) return { category: 'seo', severity: 'low', title: 'Review title length', what: `The current title is ${page.titleLength} characters: “${page.title || '(empty)'}”.`, impact: 'Very short titles can lack context; long titles may be truncated in search results. These ranges are guidelines, not ranking guarantees.', recommendation: 'Write a concise, unique title describing this page, ideally around 30–60 characters.' };
   if (issue === 'Missing meta description') return { category: 'seo', severity: 'medium', title: issue, what: 'No meta name="description" tag was found in the page HTML.', impact: 'Search engines may choose unrelated page text for the search snippet.', recommendation: 'Add a unique summary of the page in the SEO settings, usually around 70–160 characters. Keep it accurate and useful.' };
   if (issue.startsWith('Meta description length')) return { category: 'seo', severity: 'low', title: 'Review meta description length', what: `The description is ${page.description.length} characters: “${page.description}”.`, impact: 'Descriptions that are too short may omit context; long descriptions may be truncated. Google may still choose a different snippet.', recommendation: 'Edit the description to give a clear, page-specific summary, roughly 70–160 characters.' };
@@ -337,12 +371,23 @@ function auditSeverity(audit: SpeedAudit, category: IssueDetail['category']): Is
   const bytesMatch = value.match(/([\d.]+)\s*(kib|kb|mb)\b/i);
   const milliseconds = timeMatch ? Number(timeMatch[1]) * (timeMatch[2].toLowerCase() === 's' ? 1000 : 1) : 0;
   const kib = bytesMatch ? Number(bytesMatch[1]) * (bytesMatch[2].toLowerCase() === 'mb' ? 1024 : 1) : 0;
-  if (category === 'performance' && /render-blocking|use-efficient-cache-lifetimes|main-thread-work|image-delivery/.test(key) && (milliseconds >= 2000 || kib >= 1000 || /main-thread-work/.test(key))) return 'high';
+  if (category === 'performance' && /render-blocking|use-efficient-cache-lifetimes|main-thread-work|image-delivery/.test(key) && (milliseconds >= 2000 || kib >= 1000)) return 'high';
   if (category === 'best-practices' && /is-on-https|mixed-content|unsafe/.test(key) && audit.score === 0) return 'high';
   if (category === 'seo' && /document-title|missing-title|robots-txt/.test(key) && audit.score === 0) return 'high';
   if (audit.score !== null && audit.score >= 0.9) return 'low';
   // Lighthouse scores describe audit outcomes, not severity; a zero score alone is not enough for a high-severity label.
   return 'medium';
+}
+
+function geminiErrorCategory(error: unknown) {
+  const item = error as { status?: unknown; code?: unknown; message?: unknown };
+  const status = Number(item?.status ?? item?.code);
+  const message = typeof item?.message === 'string' ? item.message : '';
+  if (status === 401 || /invalid.*api.?key|api.?key.*invalid|unauthorized/i.test(message)) return 'key';
+  if (status === 403 || /permission|denied|forbidden/i.test(message)) return 'permission';
+  if (status === 429 || /quota|rate.?limit|resource.?exhausted/i.test(message)) return 'quota';
+  if (status === 404 || /model.*not found|not found.*model|unsupported model/i.test(message)) return 'model';
+  return 'service';
 }
 
 function buildIssueDetails(uptime: ScanResult['uptime'], links: LinkIssue[], pages: PageSeo[], speed: SpeedMetrics): IssueDetail[] {
@@ -354,7 +399,7 @@ function buildIssueDetails(uptime: ScanResult['uptime'], links: LinkIssue[], pag
       id: `link-${index}`,
       category: 'links',
       // A timeout is not proof of a broken link; treat it as a verification-needed issue.
-      severity: timedOut ? 'medium' : link.status === null || (link.status >= 500) ? 'high' : 'medium',
+      severity: !timedOut && link.status !== null && link.status >= 500 ? 'high' : 'medium',
       title: link.status ? `Internal URL returned HTTP ${link.status}` : timedOut ? 'URL request timed out' : 'Internal URL request failed',
       url: link.url,
       what: link.message,
@@ -410,17 +455,17 @@ async function getAiRecommendations(siteUrl: string, uptimeOk: boolean, linkIssu
     addActivity('AI analysis', 'Gemini returned a summary and actionable recommendations.', 'success');
     return { aiSummary: aiSummary || 'Gemini returned no summary. Rule-based findings are available below.', recommendations: recommendations.length ? recommendations : fallback.recommendations };
   } catch (error) {
-    const rawMessage = error instanceof Error ? error.message : 'Unknown Gemini error';
-    let message = rawMessage;
-    if (/403|denied access|permission denied|forbidden/i.test(rawMessage)) {
-      message = 'Google Gemini denied this request (403). Verify that GEMINI_API_KEY belongs to an authorized Google AI Studio project and that the project can use the configured model. Rule-based results remain available.';
-    } else if (/404|model.*not found|no longer available/i.test(rawMessage)) {
-      message = `Gemini could not find the configured model (${model}). Set GEMINI_MODEL=gemini-3.8-flash in .env.local, restart the dev server, and try again. Rule-based results remain available.`;
-    } else if (/401|invalid.*key|api key/i.test(rawMessage)) {
-      message = 'Gemini rejected the API key. Confirm GEMINI_API_KEY is a valid key from the intended Google AI Studio project. Rule-based results remain available.';
-    } else {
-      message = `Gemini was unavailable: ${rawMessage}`;
-    }
+    const category = geminiErrorCategory(error);
+    const message = category === 'key'
+      ? 'Gemini rejected the API key. Check that GEMINI_API_KEY is valid and belongs to the intended Google AI Studio project. Rule-based results remain available.'
+      : category === 'permission'
+        ? `Gemini denied access to ${model}. Check the key’s project access, API permissions, and whether that project can use this model. Rule-based results remain available.`
+        : category === 'quota'
+          ? 'Gemini quota or rate limit was reached. Check the project’s Gemini API quota and billing limits. Rule-based results remain available.'
+          : category === 'model'
+            ? `Gemini could not find or use the configured model (${model}). Verify the model ID and project availability in the current Gemini model list. Rule-based results remain available.`
+            : 'Gemini request failed. Check Google AI service availability and the configured model. Rule-based results remain available.';
+    console.warn(`[Gemini] Request failed (${category}); raw provider details were omitted.`);
     addActivity('AI analysis', message, 'warning');
     return { ...fallback, aiSummary: `${message} Rule-based results are shown.` };
   }
