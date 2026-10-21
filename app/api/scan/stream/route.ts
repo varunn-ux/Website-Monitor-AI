@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { runWebsiteScan } from '@/lib/monitor';
 import { saveScan } from '@/lib/storage';
-import { evaluateCriticalEmailAlert } from '@/lib/alert-runner';
+import { evaluateScanEmailAlert } from '@/lib/alert-runner';
 import type { ScanActivity } from '@/types';
 import type { ScanOptions } from '@/lib/monitor';
 
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
       void (async () => {
         try {
           const result = await runWebsiteScan((entry) => send({ type: 'activity', activity: entry }), requestOptions);
-          const alert = await evaluateCriticalEmailAlert(result);
+          const alert = await evaluateScanEmailAlert(result, { mode: 'manual' });
           if (alert.activity) {
             result.activities.push(alert.activity);
             if (!alert.sent) result.warnings.push(alert.message);

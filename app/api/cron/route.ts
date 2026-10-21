@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runWebsiteScan } from '@/lib/monitor';
 import { saveScan, getDueMonitoredSites, updateMonitoredSiteStatus } from '@/lib/storage';
-import { evaluateCriticalEmailAlert } from '@/lib/alert-runner';
+import { evaluateScanEmailAlert } from '@/lib/alert-runner';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -33,7 +33,10 @@ export async function GET(request: NextRequest) {
             crawlLimit: site.crawlLimit,
           });
 
-          const alert = await evaluateCriticalEmailAlert(scan, site.alertEmail || undefined);
+          const alert = await evaluateScanEmailAlert(scan, {
+            mode: 'scheduled',
+            recipientOverride: site.alertEmail || undefined,
+          });
           if (alert.activity) {
             scan.activities.push(alert.activity);
             if (!alert.sent) scan.warnings.push(alert.message);
@@ -68,7 +71,7 @@ export async function GET(request: NextRequest) {
 
     // 2. Fallback to default single-site scan if no monitored_sites are configured/due
     const result = await runWebsiteScan();
-    const alert = await evaluateCriticalEmailAlert(result);
+    const alert = await evaluateScanEmailAlert(result, { mode: 'scheduled' });
     if (alert.activity) {
       result.activities.push(alert.activity);
       if (!alert.sent) result.warnings.push(alert.message);
