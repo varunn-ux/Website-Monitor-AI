@@ -32,6 +32,19 @@ function activityClass(level: ScanActivity['level']) {
     default: return 'bg-blue-500';
   }
 }
+
+const dashboardNavigation = [
+  { id: 'overview', label: 'Overview', icon: Activity },
+  { id: 'analytics', label: 'Analytics', icon: Gauge },
+  { id: 'issue-management', label: 'Issues', icon: AlertCircle },
+  { id: 'page-audits', label: 'Pages & SEO', icon: Search },
+  { id: 'live-activity', label: 'Scan Activity', icon: TerminalSquare },
+  { id: 'websites', label: 'Websites', icon: Globe },
+  { id: 'reports', label: 'History & Reports', icon: Database },
+  { id: 'scan-history', label: 'Scan History', icon: Clock3 },
+] as const;
+
+const setupNavigationIds = new Set(['overview', 'live-activity', 'websites', 'scan-history']);
 export default function Home() {
   const [scan, setScan] = useState<ScanResult | null>(null);
   const [history, setHistory] = useState<ScanResult[]>([]);
@@ -50,6 +63,7 @@ export default function Home() {
   const [testEmailSending, setTestEmailSending] = useState(false);
   const [testEmailMsg, setTestEmailMsg] = useState('');
   const [emailHistoryRefresh, setEmailHistoryRefresh] = useState(0);
+  const [activeSection, setActiveSection] = useState('overview');
 
   useEffect(() => {
     try {
@@ -97,6 +111,12 @@ export default function Home() {
     }
   }, []);
   useEffect(() => { void loadHistory(); }, [loadHistory]);
+  useEffect(() => {
+    const syncActiveSection = () => setActiveSection(window.location.hash.slice(1) || 'overview');
+    window.addEventListener('hashchange', syncActiveSection);
+    syncActiveSection();
+    return () => window.removeEventListener('hashchange', syncActiveSection);
+  }, []);
   useEffect(() => {
     if (!busy || !startedAt) return;
     const timer = window.setInterval(() => setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000)), 1000);
@@ -186,13 +206,35 @@ const previousScan = useMemo(() => {
       )[0] ?? null
   );
 }, [current, history]);
+  const visibleNavigation = current
+    ? dashboardNavigation
+    : dashboardNavigation.filter((item) => setupNavigationIds.has(item.id));
 
-  return <main className="min-h-screen bg-slate-50 pb-12">
-    <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur"><div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-4 sm:gap-4 sm:px-5"><div className="flex min-w-0 items-center gap-2 sm:gap-3"><div className="shrink-0 rounded-xl bg-brand-700 p-2.5 text-white"><Activity size={23}/></div><div className="min-w-0"><p className="truncate text-base font-bold tracking-tight sm:text-lg">Website Monitor <span className="text-brand-700">AI</span></p><p className="hidden text-xs text-slate-500 sm:block">Health · Links · SEO · Performance</p></div>{current && <span className={`hidden rounded-full px-2.5 py-1 text-xs font-bold capitalize lg:inline-flex ${statusClass(current.overallStatus)}`}>{current.uptime.status === null ? 'availability unconfirmed' : current.overallStatus}</span>}</div><div className="flex shrink-0 items-center gap-1.5 sm:gap-2"><button type="button" onClick={sendTestEmail} disabled={testEmailSending} title="Send a verification email using Resend" aria-label="Send test email using Resend" className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white p-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-60 sm:px-3 sm:py-2">{testEmailSending ? <RefreshCw className="animate-spin" size={13}/> : <Mail size={13}/>}<span className="hidden sm:inline">{testEmailSending ? 'Sending…' : 'Test Email'}</span></button><AuthControls/>    <button aria-label={busy ? 'Scan in progress' : 'Run scan'} onClick={runScan} disabled={busy} className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-brand-700 px-2.5 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2 sm:gap-2 sm:px-4 sm:text-sm">{busy ? <RefreshCw className="animate-spin" size={16}/> : <RefreshCw size={16}/>}<span className="hidden sm:inline">{busy ? 'Scanning…' : 'Run scan'}</span></button></div></div></header>
-    <div className="mx-auto max-w-7xl px-5 py-8">
-      <nav aria-label="Dashboard sections" className="sticky top-[73px] z-20 -mx-5 mb-6 overflow-x-auto border-b border-slate-200 bg-slate-50/95 px-5 py-2 backdrop-blur">
+  return <main className="min-h-screen bg-canvas pb-12">
+    <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
+      <div className="mx-auto flex min-h-[68px] max-w-[1440px] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
+        <a href="#overview" className="flex min-w-0 items-center gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700 ring-1 ring-inset ring-brand-200"><Activity size={20}/></span>
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-bold tracking-tight text-slate-900 sm:text-base">Website Monitor <span className="text-brand-700">AI</span></span>
+            <span className="hidden text-[11px] text-slate-500 sm:block">Website Intelligence &amp; Monitoring</span>
+          </span>
+        </a>
+        <div className="hidden min-w-0 flex-1 items-center justify-center gap-3 lg:flex">
+          <span className="max-w-[260px] truncate rounded-lg bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-200">{siteUrlInput || 'No website selected'}</span>
+          <span className="whitespace-nowrap text-xs text-slate-500">{current ? `Last scan ${timeLabel(current.checkedAt)}` : 'No scans yet'}</span>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+          <button type="button" onClick={sendTestEmail} disabled={testEmailSending} title="Send a verification email using Resend" aria-label="Send test email using Resend" className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white p-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 sm:px-3 sm:py-2">{testEmailSending ? <RefreshCw className="animate-spin" size={14}/> : <Mail size={14}/>}<span className="hidden sm:inline">{testEmailSending ? 'Sending…' : 'Test Email'}</span></button>
+          <AuthControls/>
+          <button aria-label={busy ? 'Scan in progress' : 'Run scan'} onClick={runScan} disabled={busy} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-700 px-2.5 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2 sm:gap-2 sm:px-4 sm:text-sm">{busy ? <RefreshCw className="animate-spin" size={15}/> : <RefreshCw size={15}/>}<span className="hidden sm:inline">{busy ? 'Scanning…' : 'Run scan'}</span></button>
+        </div>
+      </div>
+    </header>
+    <div className="mx-auto max-w-[1440px] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <nav aria-label="Dashboard sections" className="sticky top-[68px] z-20 -mx-4 mb-6 overflow-x-auto border-y border-slate-200 bg-canvas px-4 py-2 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
         <div className="flex min-w-max gap-1">
-          {[['overview','Overview'],['analytics','Analytics'],['priority-issues','Priority issues'],['issue-management','Issue management'],['page-audits','Page audits'],['live-activity','Activity'],['email-history','Email history'],['reports','Reports'],['scan-history','Scan history']].map(([id,label]) => <a key={id} href={`#${id}`} className="rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-white hover:text-brand-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600">{label}</a>)}
+          {visibleNavigation.map(({ id, label, icon: Icon }) => <a key={id} href={`#${id}`} aria-current={activeSection === id ? 'location' : undefined} className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 ${activeSection === id ? 'bg-brand-50 text-brand-700' : 'text-slate-600 hover:bg-white hover:text-brand-700'}`}><Icon size={14}/>{label}</a>)}
         </div>
       </nav>
       {testEmailMsg && (
@@ -201,16 +243,21 @@ const previousScan = useMemo(() => {
           <button onClick={() => setTestEmailMsg('')} className="ml-4 underline hover:no-underline">Dismiss</button>
         </div>
       )}
-      <div className="mb-7 flex flex-col justify-between gap-4 md:flex-row md:items-end">
-<div><p className="text-sm font-semibold uppercase tracking-[.18em] text-brand-700">Monitoring dashboard</p><h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Your website, at a glance.</h1><p className="mt-2 max-w-2xl text-slate-500">Live scan timeline, configurable crawling, detailed findings, and practical WordPress / Elementor fixes.</p></div><div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600"><div className="flex items-center gap-2"><Clock3 size={16}/><span>{current ? `Last checked ${timeLabel(current.checkedAt)}` : 'No scans yet'}</span></div></div></div>
+      <div id="overview" className="mb-6 scroll-mt-36 flex flex-col justify-between gap-4 md:flex-row md:items-end">
+        <div className="min-w-0"><p className="text-xs font-semibold tracking-wide text-brand-700">MONITORING WORKSPACE</p><h1 className="mt-2 text-[26px] font-semibold tracking-tight text-slate-900 sm:text-3xl">Website overview</h1><p className="mt-1.5 max-w-2xl truncate text-sm text-slate-500">{siteUrlInput || 'Select a monitored website or enter a URL to get started.'}</p></div>
+        <div className="flex flex-wrap items-center gap-2">
+          {current && <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold capitalize ${statusClass(current.overallStatus)}`}><span className={`h-1.5 w-1.5 rounded-full ${current.overallStatus === 'healthy' ? 'bg-emerald-500' : current.overallStatus === 'down' ? 'bg-red-500' : 'bg-amber-500'}`}/>{current.uptime.status === null ? 'Inconclusive' : current.overallStatus}</span>}
+          <span className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600"><Clock3 size={14}/>{current ? timeLabel(current.checkedAt) : 'No scans yet'}</span>
+        </div>
+      </div>
       {error && <div className="mb-5 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><AlertTriangle size={18} className="mt-0.5 shrink-0"/><div><strong>Scan failed</strong><p className="mt-1">{error}</p><p className="mt-1 text-red-700">Check your environment variables and server logs.</p></div></div>}
 
-      <div className="mb-6">
-        <MonitoredWebsites onSelectSite={(url) => setSiteUrlInput(url)} selectedUrl={siteUrlInput} />
-      </div>
-
-      <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="mb-4"><h2 className="font-bold">Crawl configuration</h2><p className="mt-1 text-sm text-slate-500">Choose how deep the next scan should go. Higher limits may take longer and send more requests to your website.</p></div>
+      <details id="scan-configuration" className="mb-5 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-600 sm:px-5">
+          <span className="flex min-w-0 items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-700"><Search size={17}/></span><span><span className="block text-sm font-semibold text-slate-900">Scan configuration</span><span className="mt-0.5 block text-xs text-slate-500">Website URL, crawl depth, sitemap, and email alerts</span></span></span><ChevronDown size={17} className="shrink-0 text-slate-400 transition-transform"/>
+        </summary>
+        <div className="border-t border-slate-100 p-4 sm:p-5">
+        <div className="mb-4"><h2 className="font-semibold text-slate-900">Configure the next scan</h2><p className="mt-1 text-xs text-slate-500">Higher crawl limits may take longer and send more requests to your website.</p></div>
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_220px] lg:items-end">
           <label className="block"><span className="mb-1.5 block text-xs font-semibold text-slate-600">Website URL to scan</span><input value={siteUrlInput} onChange={(event) => setSiteUrlInput(event.target.value)} disabled={busy} placeholder="https://example.com" type="url" inputMode="url" autoComplete="url" spellCheck={false} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-brand-600 focus:ring-2 focus:ring-brand-100"/><span className="mt-1.5 block text-xs text-slate-500">Enter a public HTTP/HTTPS website. Each URL has its own scan history.</span></label>
           <label className="block"><span className="mb-1.5 block text-xs font-semibold text-slate-600">Maximum URLs to check</span><select value={crawlLimit} onChange={(event) => setCrawlLimit(event.target.value)} disabled={busy} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm"><option value="30">30 URLs · Quick scan</option><option value="50">50 URLs</option><option value="100">100 URLs</option><option value="250">250 URLs · Deep scan</option><option value="500">500 URLs · Maximum</option></select></label>
@@ -237,7 +284,8 @@ const previousScan = useMemo(() => {
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3"><p className="max-w-3xl text-xs leading-5 text-slate-500">Security: private/local IPs, localhost and non-standard ports are blocked. Only same-site links and redirects are crawled.</p><button type="button" onClick={runScan} disabled={busy || !siteUrlInput.trim()} className="inline-flex items-center gap-2 rounded-xl bg-brand-700 px-5 py-3 text-sm font-semibold text-white hover:bg-brand-800 disabled:cursor-wait disabled:opacity-60">{busy ? <RefreshCw size={16} className="animate-spin"/> : <Globe size={16}/>} {busy ? 'Scanning…' : 'Scan this website'}</button></div>
         {current?.crawlConfig && <p className="mt-3 text-xs text-slate-500">Last scan settings: limit {current.crawlConfig.limit} URLs · Sitemap {current.crawlConfig.sitemapEnabled ? `enabled (${current.crawlConfig.sitemapUrlsDiscovered} URL(s) discovered)` : 'disabled'}.</p>}
-      </section>
+        </div>
+      </details>
 
       <details id="live-activity" open={busy} className="mb-6 scroll-mt-36 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <summary className="flex cursor-pointer list-none flex-col gap-2 border-b border-slate-100 px-5 py-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand-600 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-3"><div className="rounded-lg bg-brand-50 p-2 text-brand-700"><TerminalSquare size={20}/></div><div><h2 className="font-bold">Live scan activity</h2><p className="text-xs text-slate-500">Timestamped steps from the server as each check runs.</p></div></div><div className="flex items-center gap-2 text-xs text-slate-500">{busy && <><span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500"/>Running · {elapsedSeconds}s elapsed</>}{!busy && current && <span>{visibleActivities.length} logged steps · expand to view</span>}</div></summary>
@@ -251,11 +299,37 @@ const previousScan = useMemo(() => {
       {!current && !busy && <div className="mb-6 rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 text-brand-700"><Globe size={26}/></div><h2 className="mt-4 text-xl font-semibold">Ready for your first scan</h2><p className="mx-auto mt-2 max-w-lg text-sm text-slate-500">Enter any public website URL above, choose a crawl limit, then click Scan this website. Results are read-only and will not change the website.</p><button onClick={runScan} className="mt-5 rounded-xl bg-brand-700 px-5 py-3 text-sm font-semibold text-white hover:bg-brand-800">Start first scan</button></div>}
 
       {current && <>
-        <div id="overview" className="mb-5 scroll-mt-36 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between text-sm text-slate-500"><span>Website status</span><Globe size={18}/></div><div className="mt-3 flex items-center gap-2"><span className={`rounded-full px-3 py-1 text-sm font-bold capitalize ${statusClass(current.overallStatus)}`}>{current.overallStatus}</span></div><p className="mt-3 truncate text-sm text-slate-600">{current.siteUrl}</p><p className="mt-1 text-xs text-slate-400">HTTP {current.uptime.status ?? 'Unknown'} · {current.uptime.responseMs ?? '—'} ms</p></div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between text-sm text-slate-500"><span>URLs inspected</span><Search size={18}/></div><div className="mt-3 text-3xl font-bold">{current.pagesChecked}</div><p className="mt-3 text-sm text-slate-500">HTML pages · {current.linksChecked} URLs checked</p></div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between text-sm text-slate-500"><span>Detailed findings</span><AlertTriangle size={18}/></div><div className="mt-3 text-3xl font-bold">{issueCount}</div><p className="mt-3 text-sm text-slate-500">Broken links, SEO, accessibility and Lighthouse</p></div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center justify-between text-sm text-slate-500"><span>Mobile performance</span><Zap size={18}/></div><div className={`${current.speed.performance === null ? 'mt-3 text-xl' : 'mt-3 text-3xl'} font-bold`}>{scoreLabel(current.speed.performance)}{current.speed.performance !== null && <span className="ml-1 text-sm font-medium text-slate-400">/100</span>}</div><p className="mt-3 text-sm text-slate-500">{current.speed.error ? 'Latest Lighthouse audit did not complete' : 'Google PageSpeed Insights'}</p></div>
+        <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+          <article className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-2 text-xs font-medium text-slate-500"><span>Website health</span><Globe size={16} className="text-brand-600"/></div>
+            <p className="mt-3 text-2xl font-semibold capitalize tracking-tight text-slate-900">{current.uptime.status === null ? 'Inconclusive' : current.overallStatus}</p>
+            <p className="mt-1 truncate text-xs text-slate-500">HTTP {current.uptime.status ?? 'no response'} · {current.siteUrl}</p>
+          </article>
+          <article className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-2 text-xs font-medium text-slate-500"><span>Response time</span><Zap size={16} className="text-cyan-600"/></div>
+            <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-900">{current.uptime.responseMs == null ? '—' : <>{current.uptime.responseMs}<span className="ml-1 text-sm font-medium text-slate-500">ms</span></>}</p>
+            <p className="mt-1 text-xs text-slate-500">{previousScan?.uptime.responseMs != null && current.uptime.responseMs != null ? `Previous ${previousScan.uptime.responseMs} ms` : 'Latest observed homepage response'}</p>
+          </article>
+          <article className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-2 text-xs font-medium text-slate-500"><span>Pages inspected</span><Search size={16} className="text-blue-600"/></div>
+            <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-900">{current.pagesChecked}</p>
+            <p className="mt-1 text-xs text-slate-500">{current.linksChecked} URLs checked in this crawl</p>
+          </article>
+          <article className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-2 text-xs font-medium text-slate-500"><span>Total findings</span><AlertTriangle size={16} className="text-amber-600"/></div>
+            <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-900">{issueCount}</p>
+            <p className="mt-1 text-xs text-slate-500">{current.seoPages.length} pages in the saved audit</p>
+          </article>
+          <article className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-2 text-xs font-medium text-slate-500"><span>Mobile performance</span><Gauge size={16} className="text-brand-600"/></div>
+            <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-900">{scoreLabel(current.speed.performance)}{current.speed.performance !== null && <span className="ml-1 text-sm font-medium text-slate-500">/100</span>}</p>
+            <p className="mt-1 text-xs text-slate-500">{current.speed.error ? 'Current Lighthouse audit unavailable' : 'Current PageSpeed score'}</p>
+          </article>
+          <article className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-2 text-xs font-medium text-slate-500"><span>High priority</span><AlertCircle size={16} className="text-red-600"/></div>
+            <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-900">{(current.detailedIssues ?? []).filter((issue) => issue.severity === 'critical' || issue.severity === 'high').length}</p>
+            <a href="#priority-issues" className="mt-1 inline-flex text-xs font-medium text-brand-700 hover:underline">Review priority findings</a>
+          </article>
         </div>
         {current.speed?.error && <div className="mb-6 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950"><AlertTriangle size={19} className="mt-0.5 shrink-0 text-amber-700"/><div className="min-w-0 flex-1"><strong>PageSpeed audit unavailable for this scan</strong><p className="mt-1 leading-6">{explainPageSpeedError(current.speed.error)}</p><p className="mt-2 text-xs text-amber-800">No scores are estimated or substituted from an older scan.</p></div><button type="button" onClick={runScan} disabled={busy} className="shrink-0 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50">Retry full scan</button></div>}
         <AnalyticsDashboard current={current} history={history}/>
@@ -288,6 +362,9 @@ const previousScan = useMemo(() => {
 
       {current && <div className="mb-6"><EmailNotificationHistory siteUrl={current.siteUrl} refreshKey={`${current.id}-${emailHistoryRefresh}`}/></div>}
       <section id="scan-history" className="mt-8 scroll-mt-36 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="mb-4 flex items-center justify-between"><div><h2 className="font-bold">Recent scan history</h2><p className="mt-1 text-xs text-slate-500">Click a saved run to open its report and timestamped activity.</p></div><span className="text-xs text-slate-500">Last {history.length} scans</span></div>{history.length ? <div className="space-y-2">{history.map(item=><button key={item.id} onClick={()=>{setScan(item);setSiteUrlInput(item.siteUrl);setStorageNote('Viewing a saved scan from Supabase.')}} className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-100 p-3 text-left hover:bg-slate-50"><div><p className="text-sm font-semibold">{timeLabel(item.checkedAt)}</p><p className="mt-1 max-w-2xl truncate text-xs text-slate-500">{item.siteUrl}</p><p className="mt-1 text-xs text-slate-500">{item.pagesChecked} pages · {item.detailedIssues?.length ?? item.linkIssues.length} findings</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-bold capitalize ${statusClass(item.overallStatus)}`}>{item.overallStatus}</span></button>)}</div> : <div className="rounded-xl bg-slate-50 p-4"><p className="text-sm text-slate-700">No saved scans yet.</p><p className="mt-1 text-xs leading-5 text-slate-500">{historyNote || 'To keep history between sessions, connect Supabase and create the website_scans table.'}</p></div>}</section>
+      <div id="websites" className="mt-6 scroll-mt-36">
+        <MonitoredWebsites onSelectSite={(url) => setSiteUrlInput(url)} selectedUrl={siteUrlInput} />
+      </div>
       <footer className="mt-8 text-center text-xs text-slate-400">Website Monitor AI · Monitoring is read-only and does not change your website.</footer>
     </div>
   </main>;

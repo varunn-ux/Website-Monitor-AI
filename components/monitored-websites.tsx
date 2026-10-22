@@ -198,7 +198,7 @@ export function MonitoredWebsites({ onSelectSite, selectedUrl }: MonitoredWebsit
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <div className="rounded-lg bg-blue-50 p-2 text-blue-600">
+            <div className="rounded-lg bg-brand-50 p-2 text-brand-700">
               <Globe size={20} />
             </div>
             <h2 className="text-lg font-bold text-slate-900">Monitored Websites</h2>
@@ -218,7 +218,7 @@ export function MonitoredWebsites({ onSelectSite, selectedUrl }: MonitoredWebsit
           </button>
           <button
             onClick={() => setShowAddForm(!showAddForm)}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-700 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-brand-800"
           >
             <Plus size={14} />
             {showAddForm ? 'Cancel' : 'Add Website'}
@@ -235,7 +235,7 @@ export function MonitoredWebsites({ onSelectSite, selectedUrl }: MonitoredWebsit
 
       {/* Add / Edit Website Form */}
       {showAddForm && (
-        <form onSubmit={handleAddSite} className="mt-5 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+        <form onSubmit={handleAddSite} className="mt-5 rounded-xl border border-brand-200 bg-brand-50/50 p-4">
           <h3 className="text-sm font-semibold text-slate-900">
             {editingSite ? `Edit Settings: ${editingSite.url}` : 'Add New Monitored Website'}
           </h3>
@@ -249,7 +249,7 @@ export function MonitoredWebsites({ onSelectSite, selectedUrl }: MonitoredWebsit
                 placeholder="https://example.com"
                 value={formUrl}
                 onChange={(e) => setFormUrl(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-500"
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 shadow-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 disabled:bg-slate-100 disabled:text-slate-500"
               />
             </div>
             <div>
@@ -259,7 +259,7 @@ export function MonitoredWebsites({ onSelectSite, selectedUrl }: MonitoredWebsit
                 placeholder="Main Production Site"
                 value={formName}
                 onChange={(e) => setFormName(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 shadow-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
               />
             </div>
             <div>
@@ -267,7 +267,7 @@ export function MonitoredWebsites({ onSelectSite, selectedUrl }: MonitoredWebsit
               <select
                 value={formCrawlLimit}
                 onChange={(e) => setFormCrawlLimit(Number(e.target.value))}
-                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 shadow-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
               >
                 <option value={30}>30 pages (Fast)</option>
                 <option value={50}>50 pages</option>
@@ -280,7 +280,7 @@ export function MonitoredWebsites({ onSelectSite, selectedUrl }: MonitoredWebsit
               <select
                 value={formInterval}
                 onChange={(e) => setFormInterval(Number(e.target.value))}
-                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 shadow-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
               >
                 <option value={1440}>Every 24 hours (Daily)</option>
               </select>
@@ -295,7 +295,7 @@ export function MonitoredWebsites({ onSelectSite, selectedUrl }: MonitoredWebsit
                 placeholder="alerts@yourdomain.com (defaults to ALERT_EMAIL_TO)"
                 value={formAlertEmail}
                 onChange={(e) => setFormAlertEmail(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 shadow-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
               />
             </div>
           </div>
@@ -313,7 +313,7 @@ export function MonitoredWebsites({ onSelectSite, selectedUrl }: MonitoredWebsit
             <button
               type="submit"
               disabled={formSubmitting}
-              className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+              className="rounded-lg bg-brand-700 px-4 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-brand-800 disabled:opacity-50"
             >
               {formSubmitting ? 'Validating...' : 'Save Website'}
             </button>
@@ -337,7 +337,7 @@ export function MonitoredWebsites({ onSelectSite, selectedUrl }: MonitoredWebsit
                 key={site.id}
                 onClick={() => onSelectSite(site.url)}
                 className={`flex flex-col gap-3 p-4 transition sm:flex-row sm:items-center sm:justify-between cursor-pointer ${
-                  isSelected ? 'bg-blue-50/60' : 'hover:bg-slate-50'
+                  isSelected ? 'bg-brand-50/60' : 'hover:bg-slate-50'
                 } ${!site.isActive ? 'opacity-60 bg-slate-50/50' : ''}`}
               >
                 <div className="min-w-0 flex-1">
@@ -396,7 +396,7 @@ export function MonitoredWebsites({ onSelectSite, selectedUrl }: MonitoredWebsit
                   <button
                     onClick={() => onSelectSite(site.url)}
                     title="Load into scanner and view reports"
-                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-blue-600 shadow-sm transition hover:bg-slate-100"
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-brand-700 shadow-sm transition hover:bg-slate-100"
                   >
                     Select
                   </button>

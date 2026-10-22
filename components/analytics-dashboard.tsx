@@ -14,10 +14,10 @@ type ScoreSeries = { key: ScoreKey; label: string; color: string };
 type AvailabilityIncident = { failedAt: string; failedStatus: number; recoveredAt?: string; recoveredStatus?: number; observedIntervalMs?: number };
 
 const SCORE_SERIES: ScoreSeries[] = [
-  { key: 'performance', label: 'Performance', color: '#2563eb' },
-  { key: 'accessibility', label: 'Accessibility', color: '#16a34a' },
-  { key: 'bestPractices', label: 'Best practices', color: '#9333ea' },
-  { key: 'seo', label: 'SEO', color: '#ea580c' },
+  { key: 'performance', label: 'Performance', color: '#4f46e5' },
+  { key: 'accessibility', label: 'Accessibility', color: '#0891b2' },
+  { key: 'bestPractices', label: 'Best practices', color: '#2563eb' },
+  { key: 'seo', label: 'SEO', color: '#059669' },
 ];
 
 function sameWebsite(first: string, second: string) {
@@ -156,10 +156,10 @@ export function AnalyticsDashboard({ current, history }: Props) {
   ];
 
   const scoreCards = [
-    { label: 'Performance', value: current.speed?.performance, color: '#2563eb' },
-    { label: 'Accessibility', value: current.speed?.accessibility, color: '#16a34a' },
-    { label: 'Best practices', value: current.speed?.bestPractices, color: '#9333ea' },
-    { label: 'SEO', value: current.speed?.seo, color: '#ea580c' },
+    { label: 'Performance', value: current.speed?.performance, color: '#4f46e5' },
+    { label: 'Accessibility', value: current.speed?.accessibility, color: '#0891b2' },
+    { label: 'Best practices', value: current.speed?.bestPractices, color: '#2563eb' },
+    { label: 'SEO', value: current.speed?.seo, color: '#059669' },
   ];
   const hasPrevious = siteHistory.length > 1;
   const lcpValues = scoreHistory.map(({ scan, label }) => ({ label, value: scan.speed?.lcpMs == null ? null : scan.speed.lcpMs / 1000 }));
