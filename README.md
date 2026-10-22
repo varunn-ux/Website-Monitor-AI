@@ -15,6 +15,9 @@ A beginner-friendly monitoring dashboard for a website you own or are authorized
 - **Critical alerts:** optional Resend email notification for new critical findings or a website-down transition.
 - **Issue workflow:** persist Open / In progress / Fixed / Ignored status, owner/assignee, and team notes per issue.
 - **Trend range controls:** display saved performance trends for 7 days, 30 days, 90 days, or all available scans.
+- **Premium dashboard navigation:** responsive section links, priority finding cards, a collapsible scan timeline, and page-level saved-scan comparisons.
+- **Honest availability trends:** uptime percentages use only observed scans with an HTTP response. Network failures are treated as inconclusive, and the percentage does not claim coverage between checks.
+- **Email notification history:** pending, accepted, failed, and skipped attempts are recorded per website. Resend acceptance is not confirmation of recipient delivery; delivery webhooks are not configured.
 
 ## Scan any public website + view charts
 
@@ -83,12 +86,12 @@ Setting the URL and secret key alone does **not** create a database table. The S
 1. Open https://supabase.com/dashboard and select the same project used in `.env.local`.
 2. In the left navigation, open **SQL Editor** and choose **New query**.
 3. Open the single SQL file at `public/supabase-schema.sql` and copy the entire file into the SQL Editor (or download it from the dashboard setup link).
-4. Click **Run**. The same idempotent script works for a fresh project and existing installations, preserves existing scan and issue data, and creates/upgrades `public.website_scans`, `public.website_issue_tracking`, `public.monitored_sites`, and `public.cron_scan_runs`.
+4. Click **Run**. The same idempotent script works for a fresh project and existing installations, preserves existing scan and issue data, and creates/upgrades `public.website_scans`, `public.website_issue_tracking`, `public.monitored_sites`, `public.cron_scan_runs`, and `public.email_notification_events`. Existing installations should rerun the updated script once to add the non-destructive scheduler claim lease, last-attempt timestamps for fair retries, and notification history table.
 5. In **Project Settings → API Keys**, copy the project URL and the server-side secret key (`sb_secret_...`) or legacy `service_role` key. Use a key from the same project.
 6. Set those values in `.env.local`, save the file, stop the dev server with `Ctrl + C`, and start it again using `npm run dev`.
 7. Open the dashboard and run a fresh scan. The history status should report that the table is ready and the new report should appear under **Recent scan history**.
 
-There is only one SQL setup file; no separate migration file is needed. Re-running it is safe and does not drop existing data. If Supabase says it cannot find a table or column in the schema cache, refresh/reload the dashboard and retry.
+There is only one SQL setup file; no separate migration file is needed. Re-running it is safe and does not drop existing scan or issue data. The scheduler stores completed checks separately from temporary claim leases and last-attempt timestamps, so failed attempts do not remain ahead of other due websites and abandoned claims expire. If Supabase says it cannot find a table or column in the schema cache, refresh/reload the dashboard and retry.
 
 > Important: credentials shared in chat, screenshots, source code, or a public repository should be rotated. Do not commit `.env.local` to GitHub.
 
@@ -154,8 +157,9 @@ The report dependencies (`jspdf`, `jspdf-autotable`, and `exceljs`) are included
 ### Email alert for critical issues
 
 - Uses Resend's email API. Configure `RESEND_API_KEY`, `ALERT_EMAIL_TO`, and `ALERT_EMAIL_FROM`. `ALERT_EMAIL_TO` can contain a comma-separated list of recipients; the sender address/domain must be verified with Resend.
-- Manual scans send only when change detection finds a new/resolved finding, severity change, site status change, or Lighthouse score change. Scheduled scans send a digest every scheduled run, including when results are unchanged. Both compare against the previous saved scan for the same hostname. When the email provider is not configured or rejects a message, the live activity log and scan warnings explain the reason.
-- Alerts run after manual/streaming scans, the JSON scan endpoint, and the scheduled cron scan. Supabase history is required for scheduled-run claims and reliable duplicate suppression; overlapping cron requests atomically claim sites before scanning.
+- Manual scans send only when change detection finds a new/resolved finding, severity change, confirmed HTTP availability change, or Lighthouse score change. A network failure without an HTTP response is not reported as confirmed downtime. Scheduled scans send a digest every scheduled run, including when results are unchanged. Both compare against the previous saved scan for the same hostname. When the email provider is not configured or rejects a message, the live activity log and scan warnings explain the reason.
+- Alerts run after manual/streaming scans, the JSON scan endpoint, and the scheduled cron scan. Supabase history is required for scheduled-run claims and reliable duplicate suppression; overlapping cron requests atomically claim sites and notification events. Quiet Mode skips are also recorded.
+- The **Email notification history** section shows pending, accepted, failed, and skipped events. “Accepted by Resend” only confirms the provider accepted the API request; this project does not configure delivery webhooks, so final delivery is not confirmed.
 - Email is optional; scans still finish if alert delivery fails.
 
 ### Performance trends dashboard
@@ -167,7 +171,7 @@ The report dependencies (`jspdf`, `jspdf-autotable`, and `exceljs`) are included
 
 - Each finding has an **Issue status & ownership** panel with status (Open, In progress, Fixed, Ignored), owner/assignee, and team notes. Save to keep the workflow data in Supabase across visits and future scans.
 - Tracking keys are derived from category, normalized issue title and URL path, and are scoped to a normalized hostname. This gives repeat findings a persistent workflow record across scans without mixing separate sites. If the issue workflow table is missing, the dashboard shows a clear schema setup message.
-- The single `public/supabase-schema.sql` creates/upgrades all four application tables and indexes. Use this same file for new and existing databases. Existing sub-daily intervals are raised to 1440 minutes without deleting data.
+- The single `public/supabase-schema.sql` creates/upgrades all five application tables and indexes. Use this same file for new and existing databases. Existing sub-daily intervals are raised to 1440 minutes without deleting data.
 - Owners are stored as labels (for example, `Web Team` or `Amit`) rather than automatically linked to an authenticated user account. The authenticated team members can view and edit workflow records; keep user creation restricted to trusted teammates.
 
 ### Phase 3 environment variables
@@ -193,7 +197,7 @@ Do not expose the Supabase service-role key or Resend API key to the browser. `N
 5. The included cron schedule is `0 3 * * *` UTC (08:30 India Standard Time) in `vercel.json`. Vercel Hobby supports cron at most once daily, so the app exposes only daily monitored-site intervals; the scheduler processes at most three due sites per invocation.
 6. The daily job uses `Authorization: Bearer <CRON_SECRET>`. Keep the value private and identical in the deployment environment.
 
-Supabase is required for scheduled scans: it stores scan history and atomically claims sites/runs so retries and overlapping cron requests do not duplicate work or email. Failed site attempts become due again at the next daily run. Vercel cron does not run during local development. This deployment does not support sub-daily intervals; using them requires a scheduler that invokes more frequently plus corresponding code/schema configuration changes.
+Supabase is required for scheduled scans: it stores scan history and atomically claims sites/runs so retries and overlapping cron requests do not duplicate work or email. A thrown site-scan failure releases its claim immediately; an interrupted run's claim becomes eligible after the 15-minute lease expires. Failed sites retry at the next scheduler invocation. Vercel cron does not run during local development. This deployment does not support sub-daily intervals; using them requires a scheduler that invokes more frequently plus corresponding code/schema configuration changes.
 
 ## Project structure
 
@@ -205,10 +209,12 @@ app/
   api/scan/stream/route.ts   # Live NDJSON activity stream for the dashboard
   api/cron/route.ts          # Daily scheduled scan
   api/history/route.ts       # Scan history + table setup status
+  api/email-history/route.ts # Authenticated notification history
   page.tsx                   # Dashboard UI and live activity log
 components/
   auth-controls.tsx         # Sign-out control
   analytics-dashboard.tsx   # Live score, category, severity and Core Web Vitals graphs
+  email-notification-history.tsx # Per-site notification attempt status
   report-tools.tsx           # Landscape PDF, formatted XLSX, CSV exports and previous-scan comparison
   issue-explorer.tsx         # Search/filter/sort, grouping, and issue cards
 lib/
@@ -219,6 +225,7 @@ lib/
   config.ts                  # Site URL defaults + public URL / DNS safety checks
   cms-guidance.ts            # WordPress / Elementor issue-specific troubleshooting
   monitor.ts                 # Availability, configurable/sitemap crawl, SEO, PageSpeed, Gemini, categorized issue details
+  availability.ts            # Reusable confirmed HTTP up/down classification
   storage.ts                 # Supabase persistence and diagnostics
 types/index.ts               # Shared types
 middleware.ts                # Protects dashboard/API; cron uses CRON_SECRET

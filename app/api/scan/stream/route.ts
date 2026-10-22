@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { runWebsiteScan } from '@/lib/monitor';
 import { saveScan } from '@/lib/storage';
-import { evaluateScanEmailAlert } from '@/lib/alert-runner';
+import { evaluateScanEmailAlert, logQuietModeSkip } from '@/lib/alert-runner';
 import type { ScanActivity } from '@/types';
 import type { ScanOptions } from '@/lib/monitor';
 
@@ -38,11 +38,11 @@ export async function POST(request: Request) {
             const alert = await evaluateScanEmailAlert(result, { mode: 'manual' });
             if (alert.activity) {
               result.activities.push(alert.activity);
-              if (!alert.sent) result.warnings.push(alert.message);
+              if (alert.needed && !alert.sent) result.warnings.push(alert.message);
               send({ type: 'activity', activity: alert.activity });
             }
           } else {
-            const skipActivity = activity('Scan email alert', 'Email notification disabled for this manual scan (quiet mode).', 'info');
+            const skipActivity = await logQuietModeSkip(result);
             result.activities.push(skipActivity);
             send({ type: 'activity', activity: skipActivity });
           }

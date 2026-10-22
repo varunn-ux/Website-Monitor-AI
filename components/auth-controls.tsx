@@ -16,5 +16,5 @@ export function AuthControls() {
       setBusy(false);
     }
   }
-  return <button onClick={signOut} disabled={busy} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"><LogOut size={15}/>{busy ? 'Signing out…' : 'Sign out'}</button>;
+  return <button onClick={signOut} disabled={busy} aria-label={busy ? 'Signing out' : 'Sign out'} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white p-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 sm:px-3 sm:py-2"><LogOut size={15}/><span className="hidden sm:inline">{busy ? 'Signing out…' : 'Sign out'}</span></button>;
 }

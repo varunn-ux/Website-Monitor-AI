@@ -107,3 +107,15 @@ export type MonitoredSite = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type EmailNotificationStatus = 'pending' | 'accepted' | 'failed' | 'skipped';
+export type EmailNotificationEvent = {
+  id: string;
+  siteUrl: string;
+  notificationType: string;
+  triggerReason: string;
+  status: EmailNotificationStatus;
+  providerMessageId?: string | null;
+  errorReason?: string | null;
+  createdAt: string;
+};

@@ -79,6 +79,8 @@ create index if not exists monitored_sites_active_checked_idx
   on public.monitored_sites (is_active, last_checked_at, created_at);
 
 -- Safe upgrade for databases that already have monitored_sites.
+alter table public.monitored_sites add column if not exists claimed_at timestamptz;
+alter table public.monitored_sites add column if not exists last_attempted_at timestamptz;
 update public.monitored_sites set check_interval_minutes = 1440 where check_interval_minutes < 1440;
 alter table public.monitored_sites drop constraint if exists monitored_sites_check_interval_minutes_check;
 alter table public.monitored_sites add constraint monitored_sites_check_interval_minutes_check check (check_interval_minutes >= 1440);
@@ -95,3 +97,36 @@ create table if not exists public.cron_scan_runs (
 create index if not exists cron_scan_runs_site_date_idx
   on public.cron_scan_runs (site_host, run_date desc);
 alter table public.cron_scan_runs enable row level security;
+
+-- ADDITIVE SCHEDULE CLAIM LEASE
+-- last_checked_at records completed checks; claimed_at prevents concurrent cron runs
+-- and expires after 15 minutes in application code so interrupted attempts can retry.
+create index if not exists monitored_sites_claimed_at_idx
+  on public.monitored_sites (claimed_at) where claimed_at is not null;
+create index if not exists monitored_sites_schedule_idx
+  on public.monitored_sites (is_active, last_attempted_at, last_checked_at, created_at);
+
+-- EMAIL NOTIFICATION AUDIT
+-- "accepted" means Resend accepted the API request, not that the recipient received it.
+create table if not exists public.email_notification_events (
+  id uuid primary key default gen_random_uuid(),
+  idempotency_key text not null unique,
+  scan_id text,
+  site_url text not null,
+  site_host text not null,
+  notification_type text not null check (notification_type in ('manual-alert', 'scheduled-digest', 'quiet-mode', 'test')),
+  trigger_reason text not null,
+  status text not null check (status in ('pending', 'accepted', 'failed', 'skipped')),
+  provider_message_id text,
+  error_reason text,
+  created_at timestamptz not null default now()
+);
+alter table public.email_notification_events drop constraint if exists email_notification_events_status_check;
+alter table public.email_notification_events
+  add constraint email_notification_events_status_check
+  check (status in ('pending', 'accepted', 'failed', 'skipped'));
+create index if not exists email_notification_events_site_created_idx
+  on public.email_notification_events (site_host, created_at desc);
+create index if not exists email_notification_events_created_idx
+  on public.email_notification_events (created_at desc);
+alter table public.email_notification_events enable row level security;

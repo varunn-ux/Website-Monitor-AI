@@ -1,13 +1,31 @@
+import { randomUUID } from 'node:crypto';
 import { NextResponse } from 'next/server';
+import { getSiteUrl } from '@/lib/config';
+import { recordEmailNotification } from '@/lib/storage';
 
 export const runtime = 'nodejs';
 
 export async function POST() {
+  const eventId = randomUUID();
+  let siteUrl = '';
+  try { siteUrl = getSiteUrl(); } catch { /* Logging test notifications is optional without a default site URL. */ }
+  const logTestEvent = (status: 'accepted' | 'failed', triggerReason: string, providerMessageId?: string, errorReason?: string) => siteUrl
+    ? recordEmailNotification({
+        idempotencyKey: `test:${eventId}`,
+        siteUrl,
+        notificationType: 'test',
+        triggerReason,
+        status,
+        providerMessageId,
+        errorReason,
+      })
+    : Promise.resolve({ saved: false, reason: 'SITE_URL is not configured, so the test event cannot be associated with a website.' });
   const apiKey = process.env.RESEND_API_KEY?.trim();
   const recipientList = (process.env.ALERT_EMAIL_TO ?? '').split(',').map((item) => item.trim()).filter(Boolean);
   const from = process.env.ALERT_EMAIL_FROM?.trim();
 
   if (!apiKey || !recipientList.length || !from) {
+    await logTestEvent('failed', 'Test email requested with incomplete Resend configuration.', undefined, 'Email configuration is incomplete.');
     return NextResponse.json({
       ok: false,
       error: 'Email configuration is incomplete. Check RESEND_API_KEY, ALERT_EMAIL_TO, and ALERT_EMAIL_FROM in your environment.',
@@ -59,22 +77,24 @@ export async function POST() {
     const payload = await response.json().catch(() => ({})) as { message?: string; id?: string };
 
     if (!response.ok) {
+      await logTestEvent('failed', 'Resend test email request rejected.', undefined, `Resend returned HTTP ${response.status}.`);
       return NextResponse.json({
         ok: false,
-        error: `Resend API error (${response.status}): ${payload.message || 'Check your API key and verified sender domain.'}`,
+        error: `Resend API error (${response.status}). Check the API key, verified sender domain, and recipient configuration.`,
       }, { status: 400 });
     }
 
+    const history = await logTestEvent('accepted', 'Test email requested by dashboard user.', payload.id);
     return NextResponse.json({
       ok: true,
-      message: `Test email sent successfully to ${recipientList.join(', ')}!`,
+      message: `Resend accepted the test email request for ${recipientList.join(', ')}. Delivery is not confirmed.${history.saved ? '' : ` Notification history was not saved: ${history.reason}`}`,
       id: payload.id,
     });
   } catch (error) {
+    await logTestEvent('failed', 'Test email request failed before provider acceptance.', undefined, 'Network error communicating with Resend.');
     return NextResponse.json({
       ok: false,
-      error: error instanceof Error ? error.message : 'Network error communicating with Resend',
+      error: 'Network error communicating with Resend. Check server connectivity and provider status.',
     }, { status: 500 });
   }
 }
-

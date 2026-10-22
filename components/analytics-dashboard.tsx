@@ -3,12 +3,15 @@
 import { useMemo, useState } from 'react';
 import { Activity, BarChart3, CircleAlert, Clock3, Gauge } from 'lucide-react';
 import type { IssueCategory, IssueDetail, ScanResult } from '@/types';
-import { explainPageSpeedError, hasLighthouseData } from '@/lib/presentation';
+import { hasLighthouseData } from '@/lib/presentation';
 import { isSameSite } from '@/lib/url-identity';
+import { getIssueTrackingKey } from '@/lib/issue-tracking';
+import { isKnownHttpStatus, isSuccessfulHttpStatus } from '@/lib/availability';
 
 type Props = { current: ScanResult; history: ScanResult[] };
 type ScoreKey = 'performance' | 'accessibility' | 'bestPractices' | 'seo';
 type ScoreSeries = { key: ScoreKey; label: string; color: string };
+type AvailabilityIncident = { failedAt: string; failedStatus: number; recoveredAt?: string; recoveredStatus?: number; observedIntervalMs?: number };
 
 const SCORE_SERIES: ScoreSeries[] = [
   { key: 'performance', label: 'Performance', color: '#2563eb' },
@@ -130,7 +133,7 @@ export function AnalyticsDashboard({ current, history }: Props) {
   const hasCurrentLighthouseData = hasLighthouseData(current.speed);
   const lastSuccessfulAudit = [...siteHistory].reverse().find((scan) => hasLighthouseData(scan.speed));
   const anySuccessfulLighthouseData = siteHistory.some((scan) => hasLighthouseData(scan.speed));
-  const pageSpeedNote = current.speed?.error ? explainPageSpeedError(current.speed.error) : 'PageSpeed Insights has not returned usable score data for this scan.';
+  const pageSpeedNote = current.speed?.error ? 'See the PageSpeed warning above. No historical score is shown as a current result.' : 'No successful PageSpeed values are saved for this scan.';
 
   const categoryItems = [
     { key: 'availability', label: 'Availability', color: '#dc2626' },
@@ -162,9 +165,56 @@ export function AnalyticsDashboard({ current, history }: Props) {
   const lcpValues = scoreHistory.map(({ scan, label }) => ({ label, value: scan.speed?.lcpMs == null ? null : scan.speed.lcpMs / 1000 }));
   const clsValues = scoreHistory.map(({ scan, label }) => ({ label, value: scan.speed?.cls ?? null }));
   const tbtValues = scoreHistory.map(({ scan, label }) => ({ label, value: scan.speed?.tbtMs ?? null }));
+  const availabilityValues = scoreHistory.map(({ scan, label }) => ({
+    label,
+    value: !isKnownHttpStatus(scan.uptime?.status)
+      ? null
+      : isSuccessfulHttpStatus(scan.uptime.status) ? 100 : 0,
+  }));
+  const responseValues = scoreHistory.map(({ scan, label }) => ({
+    label,
+    value: isKnownHttpStatus(scan.uptime?.status) && scan.uptime.responseMs != null
+      ? scan.uptime.responseMs
+      : null,
+  }));
+  const issueChangeValues = scoreHistory.map(({ scan, label }, index) => {
+    if (index === 0) return { label, newIssues: null as number | null, resolvedIssues: null as number | null };
+    const previous = scoreHistory[index - 1].scan;
+    const previousKeys = new Set(getFindings(previous).map((issue) => `${getIssueTrackingKey(issue)}|${issue.severity}`));
+    const currentKeys = new Set(getFindings(scan).map((issue) => `${getIssueTrackingKey(issue)}|${issue.severity}`));
+    return {
+      label,
+      newIssues: [...currentKeys].filter((key) => !previousKeys.has(key)).length,
+      resolvedIssues: [...previousKeys].filter((key) => !currentKeys.has(key)).length,
+    };
+  });
+  const observedAvailabilityChecks = scoreHistory.filter(({ scan }) => isKnownHttpStatus(scan.uptime?.status));
+  const uptimePercent = observedAvailabilityChecks.length >= 2
+    ? observedAvailabilityChecks.filter(({ scan }) => isSuccessfulHttpStatus(scan.uptime.status)).length / observedAvailabilityChecks.length * 100
+    : null;
+  const availabilityIncidents: AvailabilityIncident[] = [];
+  let openIncident: AvailabilityIncident | null = null;
+  for (const { scan } of scoreHistory) {
+    const status = scan.uptime?.status;
+    if (!isKnownHttpStatus(status)) continue;
+    if (!isSuccessfulHttpStatus(status)) {
+      if (!openIncident) openIncident = { failedAt: scan.checkedAt, failedStatus: status };
+      continue;
+    }
+    if (openIncident) {
+      availabilityIncidents.push({
+        ...openIncident,
+        recoveredAt: scan.checkedAt,
+        recoveredStatus: status,
+        observedIntervalMs: new Date(scan.checkedAt).getTime() - new Date(openIncident.failedAt).getTime(),
+      });
+      openIncident = null;
+    }
+  }
+  if (openIncident) availabilityIncidents.push(openIncident);
 
   return (
-    <section className="mb-6 space-y-4" aria-labelledby="analytics-title">
+    <section id="analytics" className="mb-6 scroll-mt-36 space-y-4" aria-labelledby="analytics-title">
       <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
         <div>
           <div className="flex items-center gap-2"><BarChart3 size={20} className="text-brand-700" /><h2 id="analytics-title" className="text-xl font-bold">Analytics & trends</h2></div>
@@ -228,6 +278,23 @@ export function AnalyticsDashboard({ current, history }: Props) {
         <MetricLine title="Cumulative Layout Shift (CLS)" unit="score" values={clsValues} digits={3} unavailableNote={pageSpeedNote} />
         <MetricLine title="Total Blocking Time (TBT · Lighthouse diagnostic)" unit="ms" values={tbtValues} digits={0} unavailableNote={pageSpeedNote} />
       </div>
+      <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+        <MetricLine title="Observed check availability" unit="%" values={availabilityValues} lowerIsBetter={false} digits={0} unavailableNote="No saved scan has a confirmed HTTP status yet. Network failures are unknown, not downtime." />
+        <MetricLine title="Homepage response time" unit="ms" values={responseValues} digits={0} unavailableNote="No response time has been recorded for a scan with a confirmed HTTP response." />
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-sm font-bold text-slate-800">Observed availability summary</p>
+          <p className="mt-1 text-xs text-slate-500">{observedAvailabilityChecks.length} scan(s) with an HTTP response in the selected range.</p>
+          <p className="mt-3 text-2xl font-bold text-slate-900">{uptimePercent === null ? 'Not enough data' : `${uptimePercent.toFixed(1)}%`}</p>
+          <p className="mt-2 text-xs leading-5 text-slate-500">Based only on recorded checks; it does not estimate uptime between scans.</p>
+        </div>
+        <MetricLine title="New findings between scans" unit="issues" values={issueChangeValues.map((item) => ({ label: item.label, value: item.newIssues }))} lowerIsBetter={false} digits={0} unavailableNote="A previous scan is required to compare new findings." />
+        <MetricLine title="Resolved findings between scans" unit="issues" values={issueChangeValues.map((item) => ({ label: item.label, value: item.resolvedIssues }))} lowerIsBetter={false} digits={0} unavailableNote="A previous scan is required to compare resolved findings." />
+      </div>
+      <section className="rounded-xl border border-slate-200 bg-white p-4" aria-labelledby="availability-incidents-title">
+        <h3 id="availability-incidents-title" className="text-sm font-bold text-slate-800">Confirmed downtime observations</h3>
+        <p className="mt-1 text-xs leading-5 text-slate-500">Only unsuccessful HTTP responses count as observed downtime. Recovery is the first later successful check; the exact recovery time between checks is unknown.</p>
+        {availabilityIncidents.length ? <ul className="mt-3 space-y-2">{availabilityIncidents.slice().reverse().map((incident, index) => <li key={`${incident.failedAt}-${index}`} className="rounded-lg bg-slate-50 p-3 text-xs text-slate-700"><b>HTTP {incident.failedStatus}</b> observed {new Date(incident.failedAt).toLocaleString()}.{incident.recoveredAt ? <> Successful HTTP {incident.recoveredStatus} first observed {new Date(incident.recoveredAt).toLocaleString()} ({Math.max(0, Math.round((incident.observedIntervalMs ?? 0) / 60000))} min between observations; not exact downtime duration).</> : 'No later successful HTTP check is available in this history range.'}</li>)}</ul> : <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-xs text-emerald-800">No confirmed unsuccessful homepage HTTP responses in the selected scan history.</p>}
+      </section>
       <div className="flex items-start gap-2 rounded-xl border border-blue-100 bg-blue-50/70 p-3 text-xs leading-5 text-blue-900"><Clock3 size={15} className="mt-0.5 shrink-0" /> Lighthouse lab scores can vary from run to run. Review trends across multiple scans and make sure the crawl settings are comparable before drawing conclusions.</div>
     </section>
   );

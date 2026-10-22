@@ -1,11 +1,15 @@
 import type { IssueDetail, ScanResult } from '@/types';
 import { isSameSite } from '@/lib/url-identity';
 import { getIssueTrackingKey } from '@/lib/issue-tracking';
+import { isConfirmedHttpFailure, isSuccessfulHttpStatus } from '@/lib/availability';
 
 export type EmailAlertOutcome = {
   needed: boolean;
   sent: boolean;
   message: string;
+  status: 'accepted' | 'failed' | 'skipped';
+  triggerReason: string;
+  providerMessageId?: string;
   recipients?: string[];
 };
 
@@ -36,6 +40,10 @@ function signature(issue: IssueDetail) {
   return `${getIssueTrackingKey(issue)}|${issue.severity}`;
 }
 
+function confirmedDown(scan: ScanResult) {
+  return isConfirmedHttpFailure(scan.uptime.status);
+}
+
 function escapeHtml(value: string) {
   const entities: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
   return value.replace(/[&<>"']/g, (character) => entities[character] ?? character);
@@ -48,7 +56,7 @@ export function detectScanChanges(scan: ScanResult, previous: ScanResult | null)
   if (!previous) {
     return {
       hasChanges: true,
-      siteWentDown: !scan.uptime.ok,
+      siteWentDown: confirmedDown(scan),
       siteRecovered: false,
       statusChanged: true,
       currentStatus: scan.overallStatus,
@@ -59,8 +67,10 @@ export function detectScanChanges(scan: ScanResult, previous: ScanResult | null)
     };
   }
 
-  const siteWentDown = !scan.uptime.ok && (previous.uptime?.ok !== false);
-  const siteRecovered = scan.uptime.ok && (previous.uptime?.ok === false);
+  const previousConfirmedDown = confirmedDown(previous);
+  const currentConfirmedDown = confirmedDown(scan);
+  const siteWentDown = currentConfirmedDown && !previousConfirmedDown;
+  const siteRecovered = isSuccessfulHttpStatus(scan.uptime.status) && previousConfirmedDown;
   const statusChanged = scan.overallStatus !== previous.overallStatus;
 
   const prevIssueSignatures = new Set((previous.detailedIssues ?? []).map(signature));
@@ -119,6 +129,8 @@ export async function sendScanAlertEmail(
     return {
       needed: false,
       sent: false,
+      status: 'skipped',
+      triggerReason: 'No changes detected compared with the previous scan.',
       message: 'No changes detected since the previous scan; manual scan email skipped.',
     };
   }
@@ -133,6 +145,8 @@ export async function sendScanAlertEmail(
     return {
       needed: true,
       sent: false,
+      status: 'failed',
+      triggerReason: mode === 'scheduled' ? 'Scheduled digest' : 'Scan changes detected',
       message: `${mode === 'scheduled' ? 'Scheduled report' : 'Scan change alert'} is ready, but email is not configured. Set RESEND_API_KEY, ALERT_EMAIL_TO, and ALERT_EMAIL_FROM.`,
     };
   }
@@ -146,7 +160,7 @@ export async function sendScanAlertEmail(
   if (changes.siteWentDown) {
     bannerColor = '#991b1b'; // red
     bannerTitle = 'Website is DOWN';
-    bannerSubtitle = `Homepage request failed for ${host}`;
+    bannerSubtitle = `Homepage returned an unsuccessful HTTP status for ${host}`;
     subject = `[Website Monitor AI] ALERT: Website is DOWN — ${host}`;
   } else if (changes.siteRecovered) {
     bannerColor = '#166534'; // green
@@ -239,7 +253,7 @@ export async function sendScanAlertEmail(
         ${changes.siteWentDown ? `
           <div style="background:#fef2f2;border:1px solid #fecaca;padding:16px;border-radius:8px;margin-bottom:20px">
             <p style="margin:0;color:#991b1b;font-size:14px">
-              <b>Downtime Reason:</b> ${escapeHtml(scan.uptime.error || 'Homepage HTTP check failed.')}
+              <b>Downtime Evidence:</b> Homepage returned HTTP ${scan.uptime.status}.
             </p>
           </div>
         ` : ''}
@@ -290,7 +304,7 @@ Checked: ${scan.checkedAt}
 Status: ${scan.overallStatus} (HTTP ${scan.uptime.status ?? 'N/A'})
 
 ${!changes.hasChanges ? 'No changes detected: Website metrics remain consistent with previous scan.\n' : ''}
-${changes.siteWentDown ? `Downtime Reason: ${scan.uptime.error || 'Homepage check failed'}\n` : ''}
+${changes.siteWentDown ? `Downtime Evidence: Homepage returned HTTP ${scan.uptime.status}.\n` : ''}
 ${changes.newIssues.length ? `New Issues (${changes.newIssues.length}):\n` + changes.newIssues.map((i) => `- [${i.severity.toUpperCase()}] ${i.title} (${i.url || scan.siteUrl})\n  Fix: ${i.recommendation}`).join('\n') + '\n\n' : ''}
 ${changes.resolvedIssues.length ? `Resolved Issues (${changes.resolvedIssues.length}):\n` + changes.resolvedIssues.map((i) => `- ${i.title}`).join('\n') + '\n\n' : ''}
 ${changes.scoreChanges.length ? `Score Changes:\n` + changes.scoreChanges.map((s) => `- ${s.metric}: ${s.from ?? 'N/A'} -> ${s.to ?? 'N/A'}`).join('\n') + '\n\n' : ''}
@@ -310,22 +324,39 @@ Scores: Performance: ${scan.speed?.performance ?? 'N/A'} | Accessibility: ${scan
       return {
         needed: true,
         sent: false,
+        status: 'failed',
+        triggerReason: changes.siteWentDown
+          ? 'Homepage returned an unsuccessful HTTP status.'
+          : mode === 'scheduled'
+            ? 'Scheduled digest'
+            : 'Scan changes detected',
         recipients: recipientList,
-        message: `Email alert provider returned HTTP ${response.status}: ${payload.message || 'check Resend API key and verified sender domain.'}`,
+        message: `Email alert provider returned HTTP ${response.status}. Check the Resend API key, verified sender domain, and recipient configuration.`,
       };
     }
     return {
       needed: true,
       sent: true,
+      status: 'accepted',
+      triggerReason: changes.siteWentDown
+        ? 'Homepage returned an unsuccessful HTTP status.'
+        : changes.siteRecovered
+          ? 'Homepage returned to a successful HTTP status.'
+          : mode === 'scheduled'
+            ? changes.hasChanges ? 'Scheduled digest with changes.' : 'Scheduled digest; no changes detected.'
+            : 'Scan changes detected.',
+      ...(payload.id ? { providerMessageId: payload.id } : {}),
       recipients: recipientList,
-      message: `${mode === 'scheduled' ? 'Scheduled email report' : 'Scan change alert email'} sent to ${recipientList.join(', ')}.`,
+      message: `${mode === 'scheduled' ? 'Scheduled email report' : 'Scan change alert email'} was accepted by Resend${payload.id ? ` (message ${payload.id})` : ''}. Provider acceptance does not confirm recipient delivery.`,
     };
   } catch (error) {
     return {
       needed: true,
       sent: false,
+      status: 'failed',
+      triggerReason: mode === 'scheduled' ? 'Scheduled digest' : 'Scan changes detected',
       recipients: recipientList,
-      message: `Email alert request failed: ${error instanceof Error ? error.message : 'network error'}`,
+      message: 'Email alert request failed before provider acceptance. Check server connectivity and Resend status.',
     };
   }
 }

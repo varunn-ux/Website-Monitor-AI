@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { GoogleGenAI } from '@google/genai';
 import type { CrawlRedirect, IssueDetail, LinkIssue, PageSeo, ScanActivity, ScanResult, SpeedAudit, SpeedMetrics } from '@/types';
 import { getSiteUrl, validatePublicSiteUrl } from '@/lib/config';
+import { isConfirmedHttpFailure, isKnownHttpStatus } from '@/lib/availability';
 
 const FETCH_TIMEOUT_MS = 12000;
 const DEFAULT_MAX_LINKS = 30;
@@ -401,7 +402,11 @@ function geminiErrorCategory(error: unknown) {
 
 function buildIssueDetails(uptime: ScanResult['uptime'], links: LinkIssue[], pages: PageSeo[], speed: SpeedMetrics): IssueDetail[] {
   const items: IssueDetail[] = [];
-  if (!uptime.ok) items.push({ id: 'website-down', category: 'availability', severity: 'critical', title: 'Website health check failed', url: pages[0]?.url, what: uptime.error || `Website returned HTTP ${uptime.status ?? 'no response'}.`, impact: 'Visitors may be unable to load the website. This is the highest-priority finding.', recommendation: 'Verify the site from another network, then check DNS, TLS certificate, hosting status, CDN/WAF rules, and server logs.' });
+  if (isConfirmedHttpFailure(uptime.status)) {
+    items.push({ id: 'website-down', category: 'availability', severity: 'critical', title: 'Website returned an unsuccessful homepage status', url: pages[0]?.url, what: `Homepage returned HTTP ${uptime.status}.`, impact: 'The homepage check received an unsuccessful HTTP response; visitors may be unable to access the site.', recommendation: 'Check the homepage response, hosting status, CDN/WAF rules, and server logs.' });
+  } else if (!isKnownHttpStatus(uptime.status)) {
+    items.push({ id: 'website-check-inconclusive', category: 'availability', severity: 'medium', title: 'Website availability could not be confirmed', url: pages[0]?.url, what: uptime.error || 'The homepage request did not receive an HTTP response.', impact: 'A network or scanner error is not proof that the website is down. Availability needs a successful HTTP response to be confirmed.', recommendation: 'Retry the scan and verify the website from another network before treating this as an outage.' });
+  }
   for (const [index, link] of links.entries()) {
     const timedOut = link.status === null && /timed out|timeout|aborted/i.test(link.message);
     items.push({
@@ -429,10 +434,11 @@ function buildIssueDetails(uptime: ScanResult['uptime'], links: LinkIssue[], pag
   return items;
 }
 
-function buildFallbackRecommendations(uptimeOk: boolean, linkIssues: LinkIssue[], seoPages: PageSeo[], speed: SpeedMetrics) {
+function buildFallbackRecommendations(uptimeOk: boolean | null, linkIssues: LinkIssue[], seoPages: PageSeo[], speed: SpeedMetrics) {
   const allSeo = seoPages.flatMap(page => page.issues.map(issue => ({ page, issue })));
   const list: string[] = [];
-  if (!uptimeOk) list.push('Investigate website availability immediately and verify hosting, DNS, TLS, and server logs.');
+  if (uptimeOk === false) list.push('Review the unsuccessful homepage HTTP response and verify hosting, DNS, TLS, and server logs.');
+  if (uptimeOk === null) list.push('Retry the homepage check; a network or scanner error does not confirm that the website is down.');
   if (linkIssues.length) list.push(`Review ${linkIssues.length} internal link request error(s), starting with HTTP 5xx and network failures.`);
   const altPage = allSeo.find(item => item.issue.includes('missing alt text'));
   if (altPage) list.push(`Add descriptive alt text to ${altPage.page.imagesMissingAlt} image(s) on ${new URL(altPage.page.url).pathname || '/'}; use empty alt text for decorative images.`);
@@ -443,7 +449,7 @@ function buildFallbackRecommendations(uptimeOk: boolean, linkIssues: LinkIssue[]
   return list.slice(0, 6);
 }
 
-async function getAiRecommendations(siteUrl: string, uptimeOk: boolean, linkIssues: LinkIssue[], seoPages: PageSeo[], speed: SpeedMetrics, detailedIssues: IssueDetail[], addActivity: (step: string, message: string, level?: ScanActivity['level']) => void) {
+async function getAiRecommendations(siteUrl: string, uptimeOk: boolean | null, linkIssues: LinkIssue[], seoPages: PageSeo[], speed: SpeedMetrics, detailedIssues: IssueDetail[], addActivity: (step: string, message: string, level?: ScanActivity['level']) => void) {
   const fallback = { aiSummary: 'Rule-based checks completed. Add GEMINI_API_KEY to receive AI-written analysis.', recommendations: buildFallbackRecommendations(uptimeOk, linkIssues, seoPages, speed) };
   if (!process.env.GEMINI_API_KEY?.trim()) {
     addActivity('AI analysis', 'GEMINI_API_KEY is not configured; keeping the rule-based summary.', 'warning');
@@ -454,7 +460,7 @@ async function getAiRecommendations(siteUrl: string, uptimeOk: boolean, linkIssu
   addActivity('AI analysis', `Sending a compact report to Gemini (${model}).`);
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-    const prompt = `You are a cautious website operations assistant. Analyze the monitoring findings and return JSON only with keys aiSummary (string, maximum 80 words) and recommendations (array of 3-6 concise actionable strings). Do not claim anything was fixed, avoid generic advice when a specific issue is provided, and distinguish measured facts from recommendations. Website: ${siteUrl}. Website reachable: ${uptimeOk}. Link issues: ${JSON.stringify(linkIssues.slice(0, 15))}. SEO findings: ${JSON.stringify(seoPages.filter(p => p.issues.length).slice(0, 12).map(p => ({url:p.url,issues:p.issues,missingAltImages:p.missingAltImages.slice(0,5)})))}. Detailed issues: ${JSON.stringify(detailedIssues.slice(0, 20))}. PageSpeed: ${JSON.stringify({performance:speed.performance,accessibility:speed.accessibility,bestPractices:speed.bestPractices,seo:speed.seo,lcpMs:speed.lcpMs,cls:speed.cls,tbtMs:speed.tbtMs,findings:speed.findings.slice(0,8),error:speed.error})}.`;
+    const prompt = `You are a cautious website operations assistant. Analyze the monitoring findings and return JSON only with keys aiSummary (string, maximum 80 words) and recommendations (array of 3-6 concise actionable strings). Do not claim anything was fixed, avoid generic advice when a specific issue is provided, and distinguish measured facts from recommendations. Website: ${siteUrl}. Homepage HTTP response status: ${uptimeOk === null ? 'none received; availability is unconfirmed' : uptimeOk ? 'successful' : 'unsuccessful'}. Link issues: ${JSON.stringify(linkIssues.slice(0, 15))}. SEO findings: ${JSON.stringify(seoPages.filter(p => p.issues.length).slice(0, 12).map(p => ({url:p.url,issues:p.issues,missingAltImages:p.missingAltImages.slice(0,5)})))}. Detailed issues: ${JSON.stringify(detailedIssues.slice(0, 20))}. PageSpeed: ${JSON.stringify({performance:speed.performance,accessibility:speed.accessibility,bestPractices:speed.bestPractices,seo:speed.seo,lcpMs:speed.lcpMs,cls:speed.cls,tbtMs:speed.tbtMs,findings:speed.findings.slice(0,8),error:speed.error})}.`;
     const response = await ai.interactions.create({ model, input: prompt });
     const raw = (response as { output_text?: string }).output_text ?? '';
     const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
@@ -634,9 +640,12 @@ export async function runWebsiteScan(onProgress?: ProgressHandler, options: Scan
   const detailedIssues = buildIssueDetails(uptime, linkIssues, seoPages, speed);
   addActivity('Issue analysis', `Compiled ${detailedIssues.length} detailed finding(s) across availability, links, SEO, accessibility, performance, and best practices.`, detailedIssues.length ? 'warning' : 'success');
   addActivity('AI analysis', 'Preparing AI summary and recommendations from verified monitoring results.');
-  const ai = await getAiRecommendations(siteUrl, uptime.ok, linkIssues, seoPages, speed, detailedIssues, addActivity);
+  const confirmedAvailable = uptime.status === null ? null : uptime.ok;
+  const ai = await getAiRecommendations(siteUrl, confirmedAvailable, linkIssues, seoPages, speed, detailedIssues, addActivity);
   if (ai.aiSummary.startsWith('Rule-based checks') || ai.aiSummary.startsWith('AI analysis was unavailable') || ai.aiSummary.includes('Rule-based results are shown.')) warnings.push('AI analysis was not completed; rule-based recommendations are shown.');
-  const hasIssues = !uptime.ok || detailedIssues.length > 0 || (speed.performance !== null && speed.performance < 90);
+  const confirmedDown = isConfirmedHttpFailure(uptime.status);
+  const availabilityUnknown = !isKnownHttpStatus(uptime.status);
+  const hasIssues = confirmedDown || availabilityUnknown || detailedIssues.length > 0 || (speed.performance !== null && speed.performance < 90);
   addActivity('Scan complete', `Finished in ${Math.round((Date.now() - started) / 1000)} second(s). ${detailedIssues.length} finding(s) need review.`, hasIssues ? 'warning' : 'success', Date.now() - started);
-  return { id: randomUUID(), checkedAt: new Date().toISOString(), siteUrl, overallStatus: !uptime.ok ? 'down' : hasIssues ? 'issues' : 'healthy', uptime, pagesChecked: seoPages.length, linksChecked, crawlConfig: { limit: crawlLimit, sitemapEnabled: includeSitemap, sitemapUrlsDiscovered, sitemapSources }, linkIssues, redirects, seoPages, speed, detailedIssues, activities, ...ai, warnings };
+  return { id: randomUUID(), checkedAt: new Date().toISOString(), siteUrl, overallStatus: confirmedDown ? 'down' : hasIssues ? 'issues' : 'healthy', uptime, pagesChecked: seoPages.length, linksChecked, crawlConfig: { limit: crawlLimit, sitemapEnabled: includeSitemap, sitemapUrlsDiscovered, sitemapSources }, linkIssues, redirects, seoPages, speed, detailedIssues, activities, ...ai, warnings };
 }

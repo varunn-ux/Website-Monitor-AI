@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runWebsiteScan } from '@/lib/monitor';
-import { saveScan, claimDueMonitoredSites, updateMonitoredSiteStatus, claimDefaultScheduledScan } from '@/lib/storage';
+import { saveScan, claimDueMonitoredSites, updateMonitoredSiteStatus, releaseMonitoredSiteClaim, claimDefaultScheduledScan } from '@/lib/storage';
 import { evaluateScanEmailAlert } from '@/lib/alert-runner';
 
 export const runtime = 'nodejs';
@@ -49,11 +49,11 @@ export async function GET(request: NextRequest) {
           });
           if (alert.activity) {
             scan.activities.push(alert.activity);
-            if (!alert.sent) scan.warnings.push(alert.message);
+            if (alert.needed && !alert.sent) scan.warnings.push(alert.message);
           }
 
           const storage = await saveScan(scan);
-          await updateMonitoredSiteStatus(site.id, scan.overallStatus, scan.uptime.status);
+          await updateMonitoredSiteStatus(site.id, scan.overallStatus, scan.uptime.status, site.claimToken);
 
           results.push({
             siteUrl: site.url,
@@ -64,13 +64,13 @@ export async function GET(request: NextRequest) {
         } catch (scanError) {
           const message = scanError instanceof Error ? scanError.message : 'Scan failed';
           try {
-            await updateMonitoredSiteStatus(site.id, 'down', 500);
-            results.push({ siteUrl: site.url, status: 'down', error: message });
+            await releaseMonitoredSiteClaim(site.id, site.claimToken);
+            results.push({ siteUrl: site.url, status: 'error', error: message });
           } catch (statusError) {
             results.push({
               siteUrl: site.url,
-              status: 'down',
-              error: `${message}; status update failed: ${statusError instanceof Error ? statusError.message : 'unknown database error'}`,
+              status: 'error',
+              error: `${message}; claim release failed: ${statusError instanceof Error ? statusError.message : 'unknown database error'}`,
             });
           }
         }
@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
     const alert = await evaluateScanEmailAlert(result, { mode: 'scheduled' });
     if (alert.activity) {
       result.activities.push(alert.activity);
-      if (!alert.sent) result.warnings.push(alert.message);
+      if (alert.needed && !alert.sent) result.warnings.push(alert.message);
     }
     const storage = await saveScan(result);
 

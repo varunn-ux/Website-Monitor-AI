@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { createHash } from 'node:crypto';
-import type { IssueCategory, IssueSeverity, IssueTrackingRecord, IssueWorkflowStatus, MonitoredSite, ScanResult } from '@/types';
+import type { EmailNotificationEvent, EmailNotificationStatus, IssueCategory, IssueSeverity, IssueTrackingRecord, IssueWorkflowStatus, MonitoredSite, ScanResult } from '@/types';
 import { normalizeComparisonUrl, normalizeSiteHost } from '@/lib/url-identity';
 
 function normalizedSupabaseUrl(raw: string) {
@@ -27,6 +27,12 @@ function friendlyStorageError(message: string) {
   }
   if (lower.includes('site_host') && lower.includes('website_scans')) {
     return 'Scan history needs the site_host column for reliable multi-site queries. Run public/supabase-schema.sql in Supabase SQL Editor.';
+  }
+  if (lower.includes('claimed_at') && lower.includes('monitored_sites')) {
+    return 'Scheduled scan claims need the claimed_at lease column. Run the updated public/supabase-schema.sql in Supabase SQL Editor.';
+  }
+  if (lower.includes('last_attempted_at') && lower.includes('monitored_sites')) {
+    return 'Fair scheduled scan retries need the last_attempted_at column. Run the updated public/supabase-schema.sql in Supabase SQL Editor.';
   }
   if (lower.includes('website_scans') && (lower.includes('schema cache') || lower.includes('could not find the table') || lower.includes('does not exist') || lower.includes('relation'))) {
     return 'Supabase credentials are present, but public.website_scans has not been created (or its schema cache has not refreshed). In Supabase Dashboard → SQL Editor, run public/supabase-schema.sql, then retry.';
@@ -61,9 +67,145 @@ export async function getSiteHistory(siteUrl: string, limit = 100) {
   catch (error) { return { configured: false, tableReady: false, scans: [] as ScanResult[], reason: error instanceof Error ? error.message : 'Supabase URL is invalid.' }; }
   if (!supabase) return { configured: false, tableReady: false, scans: [] as ScanResult[], reason: 'Supabase is not configured.' };
   const siteHost = normalizeSiteHost(siteUrl);
-  const { data, error } = await supabase.from('website_scans').select('result').eq('site_host', siteHost).order('checked_at', { ascending: false }).limit(limit);
+  let data;
+  let error;
+  try {
+    ({ data, error } = await supabase.from('website_scans').select('result').eq('site_host', siteHost).order('checked_at', { ascending: false }).limit(limit));
+  } catch {
+    return { configured: true, tableReady: false, scans: [] as ScanResult[], reason: 'Supabase scan history could not be reached due to a database or network error.' };
+  }
   if (error) return { configured: true, tableReady: false, scans: [] as ScanResult[], reason: friendlyStorageError(error.message) };
   return { configured: true, tableReady: true, scans: (data ?? []).map((row: { result: ScanResult }) => row.result), reason: '' };
+}
+
+export async function claimEmailNotificationAttempt(input: {
+  idempotencyKey: string;
+  scanId?: string;
+  siteUrl: string;
+  notificationType: string;
+  triggerReason: string;
+}) {
+  let supabase;
+  try { supabase = getSupabase(); }
+  catch (error) { return { claimed: false, saved: false, duplicate: false, reason: error instanceof Error ? error.message : 'Supabase setup error.' }; }
+  if (!supabase) return { claimed: false, saved: false, duplicate: false, reason: 'Supabase credentials missing.' };
+
+  let error;
+  try {
+    ({ error } = await supabase.from('email_notification_events').insert({
+      idempotency_key: input.idempotencyKey,
+      scan_id: input.scanId ?? null,
+      site_url: input.siteUrl,
+      site_host: normalizeSiteHost(input.siteUrl),
+      notification_type: input.notificationType,
+      trigger_reason: input.triggerReason.slice(0, 500),
+      status: 'pending',
+    }));
+  } catch {
+    return { claimed: false, saved: false, duplicate: false, reason: 'Email notification history could not be reached due to a database or network error.' };
+  }
+  if (error?.code === '23505') return { claimed: false, saved: true, duplicate: true, reason: '' };
+  if (error) {
+    const missingTable = error.message.toLowerCase().includes('email_notification_events');
+    return {
+      claimed: false,
+      saved: false,
+      duplicate: false,
+      reason: missingTable
+        ? 'Email notification history is not set up. Run public/supabase-schema.sql in Supabase SQL Editor.'
+        : friendlyStorageError(error.message),
+    };
+  }
+  return { claimed: true, saved: true, duplicate: false, reason: '' };
+}
+
+export async function recordEmailNotification(input: {
+  idempotencyKey: string;
+  scanId?: string;
+  siteUrl: string;
+  notificationType: string;
+  triggerReason: string;
+  status: EmailNotificationStatus;
+  providerMessageId?: string;
+  errorReason?: string;
+}) {
+  let supabase;
+  try { supabase = getSupabase(); }
+  catch (error) { return { saved: false, reason: error instanceof Error ? error.message : 'Supabase setup error.' }; }
+  if (!supabase) return { saved: false, reason: 'Supabase credentials missing.' };
+
+  let error;
+  try {
+    ({ error } = await supabase.from('email_notification_events').upsert({
+      idempotency_key: input.idempotencyKey,
+      scan_id: input.scanId ?? null,
+      site_url: input.siteUrl,
+      site_host: normalizeSiteHost(input.siteUrl),
+      notification_type: input.notificationType,
+      trigger_reason: input.triggerReason.slice(0, 500),
+      status: input.status,
+      provider_message_id: input.providerMessageId ?? null,
+      error_reason: input.errorReason?.slice(0, 1000) ?? null,
+    }, { onConflict: 'idempotency_key' }));
+  } catch {
+    return { saved: false, reason: 'Email notification history could not be reached due to a database or network error.' };
+  }
+  if (error) {
+    const missingTable = error.message.toLowerCase().includes('email_notification_events');
+    return {
+      saved: false,
+      reason: missingTable
+        ? 'Email notification history is not set up. Run public/supabase-schema.sql in Supabase SQL Editor.'
+        : friendlyStorageError(error.message),
+    };
+  }
+  return { saved: true, reason: '' };
+}
+
+export async function getEmailNotificationHistory(siteUrl?: string, limit = 100) {
+  let supabase;
+  try { supabase = getSupabase(); }
+  catch (error) { return { ready: false, events: [] as EmailNotificationEvent[], reason: error instanceof Error ? error.message : 'Supabase setup error.' }; }
+  if (!supabase) return { ready: false, events: [] as EmailNotificationEvent[], reason: 'Supabase credentials missing.' };
+
+  let query = supabase.from('email_notification_events')
+    .select('id,site_url,notification_type,trigger_reason,status,provider_message_id,error_reason,created_at')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (siteUrl) {
+    try { query = query.eq('site_host', normalizeSiteHost(siteUrl)); }
+    catch { return { ready: false, events: [] as EmailNotificationEvent[], reason: 'Enter a valid website URL to load email notification history.' }; }
+  }
+  let data;
+  let error;
+  try { ({ data, error } = await query); }
+  catch {
+    return { ready: false, events: [] as EmailNotificationEvent[], reason: 'Email notification history could not be reached due to a database or network error.' };
+  }
+  if (error) {
+    const missingTable = error.message.toLowerCase().includes('email_notification_events');
+    return {
+      ready: false,
+      events: [] as EmailNotificationEvent[],
+      reason: missingTable
+        ? 'Email notification history is not set up. Run public/supabase-schema.sql in Supabase SQL Editor.'
+        : friendlyStorageError(error.message),
+    };
+  }
+  return {
+    ready: true,
+    events: (data ?? []).map((row: any) => ({
+      id: row.id,
+      siteUrl: row.site_url,
+      notificationType: row.notification_type,
+      triggerReason: row.trigger_reason,
+      status: row.status,
+      providerMessageId: row.provider_message_id,
+      errorReason: row.error_reason,
+      createdAt: row.created_at,
+    })) as EmailNotificationEvent[],
+    reason: '',
+  };
 }
 
 
@@ -218,59 +360,81 @@ export async function deleteMonitoredSite(id: string) {
   return { deleted: true, reason: '' };
 }
 
-export async function updateMonitoredSiteStatus(id: string, status: 'healthy' | 'issues' | 'down', statusCode: number | null) {
+export async function updateMonitoredSiteStatus(id: string, status: 'healthy' | 'issues' | 'down', statusCode: number | null, claimToken?: string) {
   const supabase = getSupabase();
   if (!supabase) throw new Error('Supabase is not configured; monitored-site status cannot be updated.');
   const completedAt = new Date().toISOString();
-  const { error } = await supabase.from('monitored_sites').update({
+  let query = supabase.from('monitored_sites').update({
     last_status: status,
     last_status_code: statusCode,
     last_checked_at: completedAt,
+    claimed_at: null,
     updated_at: completedAt,
   }).eq('id', id);
+  if (claimToken) query = query.eq('claimed_at', claimToken);
+  const { error } = await query;
   if (error) throw new Error(friendlyStorageError(error.message));
 }
+
+export async function releaseMonitoredSiteClaim(id: string, claimToken: string) {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('Supabase is not configured; monitored-site claim cannot be released.');
+  const { error } = await supabase.from('monitored_sites')
+    .update({ claimed_at: null, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('claimed_at', claimToken);
+  if (error) throw new Error(friendlyStorageError(error.message));
+}
+
+type ScheduledMonitoredSite = MonitoredSite & { claimToken: string };
 
 export async function claimDueMonitoredSites(limit: number = 3) {
   let supabase;
   try { supabase = getSupabase(); }
-  catch (error) { return { ready: false, hasMonitoredSites: false, sites: [] as MonitoredSite[], reason: error instanceof Error ? error.message : 'Supabase setup error.' }; }
-  if (!supabase) return { ready: false, hasMonitoredSites: false, sites: [] as MonitoredSite[], reason: 'Supabase credentials missing.' };
+  catch (error) { return { ready: false, hasMonitoredSites: false, sites: [] as ScheduledMonitoredSite[], reason: error instanceof Error ? error.message : 'Supabase setup error.' }; }
+  if (!supabase) return { ready: false, hasMonitoredSites: false, sites: [] as ScheduledMonitoredSite[], reason: 'Supabase credentials missing.' };
 
   const data: Record<string, any>[] = [];
   for (let offset = 0; ; offset += 1000) {
     const { data: page, error } = await supabase.from('monitored_sites').select('*').order('created_at', { ascending: true }).range(offset, offset + 999);
-    if (error) return { ready: false, hasMonitoredSites: false, sites: [] as MonitoredSite[], reason: friendlyStorageError(error.message) };
+    if (error) return { ready: false, hasMonitoredSites: false, sites: [] as ScheduledMonitoredSite[], reason: friendlyStorageError(error.message) };
     data.push(...(page ?? []));
     if (!page || page.length < 1000) break;
   }
 
   const now = Date.now();
+  const claimLeaseMs = 15 * 60 * 1000;
   const due = data.filter((site) => site.is_active).filter((site) => {
-    if (!site.last_checked_at) return true;
-    const lastChecked = new Date(site.last_checked_at).getTime();
+    const claimedAt = site.claimed_at ? new Date(site.claimed_at).getTime() : null;
+    if (claimedAt !== null && Number.isFinite(claimedAt) && now - claimedAt < claimLeaseMs) return false;
+    const lastActivity = [site.last_attempted_at, site.last_checked_at]
+      .filter((value): value is string => Boolean(value))
+      .map((value) => new Date(value).getTime())
+      .filter(Number.isFinite)
+      .reduce((latest, time) => Math.max(latest, time), 0);
+    if (!lastActivity) return true;
     const intervalMs = Math.max((site.check_interval_minutes || 1440) * 60 * 1000, 24 * 60 * 60 * 1000);
-    return Number.isFinite(lastChecked) && (now - lastChecked) >= intervalMs;
+    return now - lastActivity >= intervalMs;
   });
 
   due.sort((a, b) => {
-    const timeA = new Date(a.last_checked_at ?? a.created_at).getTime();
-    const timeB = new Date(b.last_checked_at ?? b.created_at).getTime();
+    const timeA = new Date(a.last_attempted_at ?? a.last_checked_at ?? a.created_at).getTime();
+    const timeB = new Date(b.last_attempted_at ?? b.last_checked_at ?? b.created_at).getTime();
     if (timeA !== timeB) return timeA - timeB;
     return (a.created_at || '').localeCompare(b.created_at || '');
   });
 
-  const sites: MonitoredSite[] = [];
+  const sites: ScheduledMonitoredSite[] = [];
   for (const site of due) {
     if (sites.length >= limit) break;
     const claimedAt = new Date().toISOString();
-    let claim = supabase.from('monitored_sites').update({ last_checked_at: claimedAt, updated_at: claimedAt }).eq('id', site.id).eq('is_active', true);
-    claim = site.last_checked_at
-      ? claim.eq('last_checked_at', site.last_checked_at)
-      : claim.is('last_checked_at', null);
+    let claim = supabase.from('monitored_sites').update({ claimed_at: claimedAt, last_attempted_at: claimedAt, updated_at: claimedAt }).eq('id', site.id).eq('is_active', true);
+    claim = site.last_checked_at ? claim.eq('last_checked_at', site.last_checked_at) : claim.is('last_checked_at', null);
+    claim = site.claimed_at ? claim.eq('claimed_at', site.claimed_at) : claim.is('claimed_at', null);
+    claim = site.last_attempted_at ? claim.eq('last_attempted_at', site.last_attempted_at) : claim.is('last_attempted_at', null);
     const { data: claimed, error } = await claim.select('*').maybeSingle();
     if (error) return { ready: false, hasMonitoredSites: data.length > 0, sites, reason: friendlyStorageError(error.message) };
-    if (claimed) sites.push(mapMonitoredSiteRow(claimed));
+    if (claimed) sites.push({ ...mapMonitoredSiteRow(claimed), claimToken: claimedAt });
   }
   return { ready: true, hasMonitoredSites: data.length > 0, sites, reason: '' };
 }
