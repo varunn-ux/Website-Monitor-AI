@@ -7,6 +7,7 @@ import { hasLighthouseData } from '@/lib/presentation';
 import { isSameSite } from '@/lib/url-identity';
 import { getIssueTrackingKey } from '@/lib/issue-tracking';
 import { isKnownHttpStatus, isSuccessfulHttpStatus } from '@/lib/availability';
+import { SeverityDonut } from '@/components/dashboard-ui';
 
 type Props = { current: ScanResult; history: ScanResult[] };
 type ScoreKey = 'performance' | 'accessibility' | 'bestPractices' | 'seo';
@@ -268,7 +269,7 @@ export function AnalyticsDashboard({ current, history }: Props) {
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-2"><CircleAlert size={18} className="text-amber-700" /><h3 className="font-bold">Severity breakdown</h3></div>
           <p className="mt-1 text-xs text-slate-500">Prioritize critical and high severity findings first.</p>
-          <div className="mt-5"><HorizontalBars items={severityItems} emptyMessage="No findings to break down by severity." /></div>
+          {findings.length ? <div className="mt-4"><SeverityDonut items={severityItems}/></div> : <p className="mt-5 rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No findings to break down by severity.</p>}
           <div className="mt-4 rounded-lg bg-slate-50 p-3 text-xs text-slate-600">{findings.length} total finding(s) across {new Set(findings.map((item) => item.url || current.siteUrl)).size} affected URL(s).</div>
         </section>
       </div>
