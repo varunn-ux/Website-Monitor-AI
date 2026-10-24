@@ -1,32 +1,39 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { motion, useInView } from 'motion/react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Moon, Sun } from 'lucide-react';
 import type { IssueSeverity } from '@/types';
 
 export function GlassCard({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return <div className={`glass-card ${className}`}>{children}</div>;
+  return <div className={`glass-card ${className}`.trim()}>{children}</div>;
 }
 
+// Based on the reference file: AnimatedNumber.tsx
 export function AnimatedNumber({ value, suffix = '' }: { value: number; suffix?: string }) {
-  const [displayValue, setDisplayValue] = useState(value);
+  const ref = useRef<HTMLSpanElement | null>(null);
+  const isInView = useInView(ref, { once: true, margin: '-10% 0px -10% 0px' });
+  const [displayValue, setDisplayValue] = useState(0);
 
   useEffect(() => {
-    const duration = 650;
+    if (!isInView) return;
+
+    const duration = 750;
     const startValue = displayValue;
     const startedAt = performance.now();
     let frame = 0;
     const update = (now: number) => {
       const progress = Math.min((now - startedAt) / duration, 1);
       const eased = 1 - (1 - progress) ** 3;
-      setDisplayValue(Math.round(startValue + (value - startValue) * eased));
+      const nextValue = Math.round(startValue + (value - startValue) * eased);
+      setDisplayValue(nextValue);
       if (progress < 1) frame = requestAnimationFrame(update);
     };
     frame = requestAnimationFrame(update);
     return () => cancelAnimationFrame(frame);
-  }, [value]);
+  }, [isInView, value]);
 
-  return <>{displayValue.toLocaleString()}{suffix}</>;
+  return <span ref={ref}>{displayValue.toLocaleString()}{suffix}</span>;
 }
 
 export function Sparkline({ values, color = '#4f46e5', label }: { values: number[]; color?: string; label: string }) {
@@ -67,11 +74,11 @@ export function KpiCard({
   return (
     <GlassCard className="kpi-card min-w-0 p-4 sm:p-5">
       <div className="flex items-center justify-between gap-3">
-        <p className="truncate text-xs font-medium text-slate-500">{label}</p>
-        <span className="kpi-icon" style={{ color }}>{icon}</span>
+        <p className="truncate text-[0.7rem] font-medium uppercase tracking-[0.14em] text-slate-500">{label}</p>
+        <span className="kpi-icon h-9 w-9 rounded-xl border border-white/60 bg-white/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]" style={{ color, background: `linear-gradient(135deg, ${color}10, ${color}18)` }}>{icon}</span>
       </div>
-      <div className="mt-3 flex items-end justify-between gap-2">
-        <p className="truncate text-[26px] font-semibold leading-none tracking-tight text-slate-900">
+      <div className="mt-4 flex items-end justify-between gap-2">
+        <p className="truncate text-[28px] font-semibold leading-none tracking-[-0.06em] text-slate-900">
           {typeof value === 'number' ? <AnimatedNumber value={value} suffix={suffix}/> : value}
         </p>
         {trend && <Sparkline values={trend} color={color} label={label}/>}
@@ -85,7 +92,7 @@ export function ScoreRing({ label, score, color, icon }: { label: string; score:
   const circumference = 2 * Math.PI * 38;
   const progress = score == null ? 0 : Math.min(100, Math.max(0, score));
   return (
-    <div className="score-ring-card flex min-w-0 items-center gap-3 rounded-xl border border-slate-200/80 bg-white/75 p-3 sm:flex-col sm:gap-2 sm:p-4">
+    <div className="score-ring-card flex min-w-0 items-center gap-3 rounded-2xl border border-slate-200/70 bg-white/75 p-3 shadow-[0_16px_36px_rgba(15,23,42,0.06)] ring-1 ring-white/60 sm:flex-col sm:gap-2 sm:p-4">
       <div className="relative h-[76px] w-[76px] shrink-0" role="img" aria-label={`${label}: ${score == null ? 'unavailable' : `${score} out of 100`}`}>
         <svg viewBox="0 0 88 88" className="h-full w-full -rotate-90">
           <circle cx="44" cy="44" r="38" fill="none" stroke="var(--ring-track)" strokeWidth="7"/>
@@ -125,12 +132,19 @@ export function ThemeToggle() {
   const [dark, setDark] = useState(false);
 
   useEffect(() => {
-    try { setDark(localStorage.getItem('wm_theme') === 'dark'); }
-    catch { setDark(false); }
+    try {
+      const enabled = localStorage.getItem('wm_theme') === 'dark';
+      setDark(enabled);
+      document.documentElement.dataset.theme = enabled ? 'dark' : 'light';
+    } catch {
+      document.documentElement.dataset.theme = 'light';
+      setDark(false);
+    }
   }, []);
 
   function changeTheme(enabled: boolean) {
     setDark(enabled);
+    document.documentElement.dataset.theme = enabled ? 'dark' : 'light';
     try { localStorage.setItem('wm_theme', enabled ? 'dark' : 'light'); }
     catch { /* Theme remains active for this page view. */ }
   }

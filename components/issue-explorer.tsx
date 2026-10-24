@@ -61,19 +61,19 @@ function IssueWorkflowControls({ issue, siteUrl, record, onSaved }: { issue: Iss
 
 function FindingCard({ issue, siteUrl, record, onSaved }: { issue: IssueDetail; siteUrl: string; record?: IssueTrackingRecord; onSaved: (record: IssueTrackingRecord) => void }) {
   const cms = getCmsGuidance(issue);
-  return <article className="rounded-xl border border-slate-200 bg-white p-4">
+  return <article className="min-w-0 rounded-xl border border-slate-200 bg-white p-4">
     <div className="flex flex-wrap items-center gap-2">
       <span className={`rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide ${severityClass(issue.severity)}`}>{issue.severity}</span>
       <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">{categoryLabels[issue.category] ?? issue.category}</span>
       {record && <span className="rounded-full bg-brand-50 px-2.5 py-1 text-[11px] font-semibold text-brand-800">{statusLabels[record.status]}{record.owner ? ` · ${record.owner}` : ''}</span>}
       {issue.source && <span className="text-xs text-slate-400">{issue.source}</span>}
     </div>
-    <h3 className="mt-3 font-semibold text-slate-900">{issue.title}</h3>
+    <h3 className="mt-3 break-words font-semibold text-slate-900">{issue.title}</h3>
     {issue.url && <a href={issue.url} target="_blank" rel="noreferrer" className="mt-1 inline-flex max-w-full items-start gap-1 break-all text-xs text-brand-700 hover:underline">{issue.url}<ExternalLink size={12} className="mt-0.5 shrink-0"/></a>}
-    <div className="mt-3 grid gap-3 md:grid-cols-3">
-      <div><p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">What we found</p><p className="mt-1 text-sm leading-5 text-slate-700">{issue.what}</p></div>
-      <div><p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Why it matters</p><p className="mt-1 text-sm leading-5 text-slate-700">{issue.impact}</p></div>
-      <div><p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Recommended fix</p><p className="mt-1 text-sm leading-5 text-slate-700">{issue.recommendation}</p></div>
+    <div className="mt-3 grid min-w-0 gap-3 md:grid-cols-3">
+      <div className="min-w-0"><p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">What we found</p><p className="mt-1 break-words text-sm leading-5 text-slate-700">{issue.what}</p></div>
+      <div className="min-w-0"><p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Why it matters</p><p className="mt-1 break-words text-sm leading-5 text-slate-700">{issue.impact}</p></div>
+      <div className="min-w-0"><p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Recommended fix</p><p className="mt-1 break-words text-sm leading-5 text-slate-700">{issue.recommendation}</p></div>
     </div>
     <details className="mt-4 rounded-lg border border-blue-100 bg-blue-50/60 p-3">
       <summary className="cursor-pointer text-sm font-semibold text-blue-900">WordPress / Elementor fix guidance</summary>

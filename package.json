@@ -19,7 +19,8 @@
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
     "exceljs": "^4.4.0",
-    "@supabase/ssr": "^0.7.0"
+    "@supabase/ssr": "^0.7.0",
+    "motion": "^14.6.0"
   },
   "overrides": {
     "exceljs": {

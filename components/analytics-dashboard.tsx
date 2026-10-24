@@ -98,9 +98,10 @@ function MetricLine({
 }
 
 function HorizontalBars({ items, emptyMessage }: { items: Array<{ label: string; value: number; color: string }>; emptyMessage: string }) {
-  const maxValue = Math.max(1, ...items.map((item) => item.value));
-  if (!items.length || items.every((item) => item.value === 0)) return <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">{emptyMessage}</p>;
-  return <div className="space-y-3">{items.map((item) => (
+  const visibleItems = items.filter((item) => item.value > 0);
+  const maxValue = Math.max(1, ...visibleItems.map((item) => item.value));
+  if (!visibleItems.length) return <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">{emptyMessage}</p>;
+  return <div className="space-y-3">{visibleItems.map((item) => (
     <div key={item.label}>
       <div className="mb-1.5 flex items-center justify-between gap-3 text-xs"><span className="font-medium text-slate-700">{item.label}</span><span className="tabular-nums text-slate-500">{item.value}</span></div>
       <div className="h-2.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full transition-all" style={{ width: `${(item.value / maxValue) * 100}%`, backgroundColor: item.color }} /></div>
@@ -129,8 +130,16 @@ export function AnalyticsDashboard({ current, history }: Props) {
 
   const scoreHistory = siteHistory.map((scan, index) => ({
     scan,
-    label: siteHistory.length === 1 ? 'Current' : `${index + 1} · ${new Date(scan.checkedAt).toLocaleDateString([], { month: 'short', day: 'numeric' })}`,
+    label: siteHistory.length === 1 ? 'Current' : new Date(scan.checkedAt).toLocaleDateString([], { month: 'short', day: 'numeric' }),
   }));
+  const chartLabelCount = Math.min(5, scoreHistory.length);
+  const chartLabelIndexes = new Set(
+    Array.from({ length: chartLabelCount }, (_, index) =>
+      chartLabelCount === 1
+        ? 0
+        : Math.round((index / (chartLabelCount - 1)) * (scoreHistory.length - 1))
+    )
+  );
   const hasCurrentLighthouseData = hasLighthouseData(current.speed);
   const lastSuccessfulAudit = [...siteHistory].reverse().find((scan) => hasLighthouseData(scan.speed));
   const anySuccessfulLighthouseData = siteHistory.some((scan) => hasLighthouseData(scan.speed));
@@ -224,8 +233,8 @@ export function AnalyticsDashboard({ current, history }: Props) {
         <div className="flex flex-wrap items-center gap-1 rounded-xl bg-slate-100 p-1" aria-label="Trend date range">{([{ value: '7d', label: '7 days' }, { value: '30d', label: '30 days' }, { value: '90d', label: '90 days' }, { value: 'all', label: 'All' }] as const).map((item) => <button key={item.value} onClick={() => setRange(item.value)} className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${range === item.value ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}>{item.label}</button>)}<span className="ml-1 px-2 text-xs text-slate-500">{siteHistory.length} scans</span></div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="grid min-w-0 items-start gap-4 xl:grid-cols-2">
+        <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-2"><Gauge size={18} className="text-blue-700" /><h3 className="font-bold">Current score snapshot</h3></div>
           <p className="mt-1 text-xs text-slate-500">Exact Lighthouse scores with visual bars (out of 100).</p>
           <div className="mt-5 space-y-4">{scoreCards.map((score) => (
@@ -238,13 +247,13 @@ export function AnalyticsDashboard({ current, history }: Props) {
           {!hasCurrentLighthouseData && lastSuccessfulAudit && lastSuccessfulAudit.id !== current.id && <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs leading-5 text-blue-950"><strong>Last successful audit (historical, not this scan):</strong> {new Date(lastSuccessfulAudit.checkedAt).toLocaleString()}<div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">{[{label:'Performance',value:lastSuccessfulAudit.speed.performance},{label:'Accessibility',value:lastSuccessfulAudit.speed.accessibility},{label:'Best practices',value:lastSuccessfulAudit.speed.bestPractices},{label:'SEO',value:lastSuccessfulAudit.speed.seo}].map((metric) => <div key={metric.label} className="rounded-md bg-white/80 p-2"><span className="block text-slate-600">{metric.label}</span><strong>{metric.value == null ? 'Unavailable' : `${metric.value}/100`}</strong></div>)}</div></div>}
         </section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-2"><BarChart3 size={18} className="text-blue-700" /><h3 className="font-bold">Findings by category</h3></div>
           <p className="mt-1 text-xs text-slate-500">Counts are from the current scan’s detailed findings.</p>
           <div className="mt-5"><HorizontalBars items={countsByCategory} emptyMessage="No categorized findings are available for this scan." /></div>
         </section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-2"><Activity size={18} className="text-blue-700" /><h3 className="font-bold">Lighthouse score history</h3></div>
           <p className="mt-1 text-xs text-slate-500">Performance, accessibility, best practices and SEO across scans of this hostname.</p>
           <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2">{SCORE_SERIES.map((series) => <span key={series.key} className="inline-flex items-center gap-1.5 text-xs text-slate-600"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: series.color }} />{series.label}</span>)}</div>
@@ -260,13 +269,17 @@ export function AnalyticsDashboard({ current, history }: Props) {
                 const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
                 return <g key={series.key}>{points.length > 1 && <path d={path} fill="none" stroke={series.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>}{points.map((point, index) => <circle key={`${point.scan.id}-${series.key}-${index}`} cx={point.x} cy={point.y} r="4" fill={series.color} stroke="white" strokeWidth="1.5"><title>{`${series.label}: ${point.value}/100 · ${new Date(point.scan.checkedAt).toLocaleString()}`}</title></circle>)}</g>;
               })}
-              {scoreHistory.map(({ scan, label }, index) => { const x = scoreHistory.length === 1 ? 352 : 48 + (index / (scoreHistory.length - 1)) * 608; return <text key={scan.id} x={x} y="232" textAnchor="middle" fontSize="9" fill="#64748b">{label}</text>; })}
+              {scoreHistory.map(({ scan, label }, index) => {
+                if (!chartLabelIndexes.has(index)) return null;
+                const x = scoreHistory.length === 1 ? 352 : 48 + (index / (scoreHistory.length - 1)) * 608;
+                return <text key={scan.id} x={x} y="232" textAnchor="middle" fontSize="10" fill="#64748b">{label}</text>;
+              })}
             </svg>}
           </div>
           {!hasPrevious && anySuccessfulLighthouseData && <p className="mt-2 rounded-lg bg-slate-50 p-3 text-xs text-slate-500">This is the first saved scan for this website. Run more scans to see a trend line.</p>}
         </section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center gap-2"><CircleAlert size={18} className="text-amber-700" /><h3 className="font-bold">Severity breakdown</h3></div>
           <p className="mt-1 text-xs text-slate-500">Prioritize critical and high severity findings first.</p>
           {findings.length ? <div className="mt-4"><SeverityDonut items={severityItems}/></div> : <p className="mt-5 rounded-xl bg-slate-50 p-4 text-sm text-slate-500">No findings to break down by severity.</p>}

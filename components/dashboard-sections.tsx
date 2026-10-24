@@ -36,20 +36,23 @@ export function DashboardHero({
 }) {
   const status = current?.uptime.status === null ? 'Inconclusive' : current?.overallStatus ?? 'Awaiting first scan';
   return (
-    <GlassCard className="hero-command mb-5 overflow-hidden p-4 sm:p-6">
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_250px] lg:items-center">
+    <GlassCard className="hero-command mb-5 overflow-hidden p-4 sm:p-6 lg:p-7">
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_260px] lg:items-center">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-xs font-semibold text-brand-700"><span className={`live-dot ${busy ? 'is-live' : ''}`}/>{busy ? `Scan running · ${elapsedSeconds}s elapsed` : current ? 'Monitoring workspace' : 'Ready when you are'}</div>
-          <h1 className="font-heading mt-2 text-2xl font-semibold tracking-tight text-slate-900 sm:text-[30px]">Website command center</h1>
-          <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-500">Run a read-only health and quality check. Your scan activity and findings update as the checks finish.</p>
-          <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+          <div className="inline-flex items-center gap-2 rounded-full border border-indigo-200 bg-indigo-50/90 px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-indigo-700">
+            <span className={`live-dot ${busy ? 'is-live' : ''}`} />
+            {busy ? `Scan running · ${elapsedSeconds}s elapsed` : current ? 'Monitoring workspace' : 'Ready when you are'}
+          </div>
+          <h1 className="font-heading mt-3 text-3xl font-semibold tracking-[-0.06em] text-slate-900 sm:text-[38px]">Website command center</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 sm:text-base">Run a read-only health and quality check. Your scan activity and findings update as the checks finish.</p>
+          <div className="mt-5 flex flex-col gap-2 sm:flex-row">
             <label className="relative min-w-0 flex-1">
               <Globe size={17} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"/>
-              <input aria-label="Website URL to scan" value={siteUrl} onChange={(event) => onSiteUrlChange(event.target.value)} disabled={busy} placeholder="https://example.com" type="url" inputMode="url" autoComplete="url" spellCheck={false} className="h-12 w-full rounded-xl border border-slate-200 bg-white/90 pl-10 pr-3 text-sm text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-brand-600 focus:ring-4 focus:ring-brand-100"/>
+              <input aria-label="Website URL to scan" value={siteUrl} onChange={(event) => onSiteUrlChange(event.target.value)} disabled={busy} placeholder="https://example.com" type="url" inputMode="url" autoComplete="url" spellCheck={false} className="h-12 w-full rounded-2xl border border-slate-200/80 bg-white/85 pl-10 pr-3 text-sm text-slate-900 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] outline-none transition placeholder:text-slate-400 focus:border-indigo-300 focus:ring-4 focus:ring-indigo-100"/>
             </label>
-            <button type="button" onClick={onRunScan} disabled={busy || !siteUrl.trim()} className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-brand-700 px-5 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,.22)] transition hover:-translate-y-0.5 hover:bg-brand-800 disabled:translate-y-0 disabled:cursor-wait disabled:opacity-60">{busy ? <Activity size={16} className="animate-spin"/> : <Zap size={16}/>} {busy ? 'Scanning…' : 'Run scan'}</button>
+            <button type="button" onClick={onRunScan} disabled={busy || !siteUrl.trim()} className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 px-5 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(79,70,229,0.22)] transition hover:-translate-y-0.5 hover:shadow-[0_18px_30px_rgba(79,70,229,0.28)] disabled:translate-y-0 disabled:cursor-wait disabled:opacity-60">{busy ? <Activity size={16} className="animate-spin"/> : <Zap size={16}/>} {busy ? 'Scanning…' : 'Run scan'}</button>
           </div>
-          <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500"><ShieldCheck size={13}/>Public HTTP/HTTPS sites only · private networks and off-site redirects are blocked.</p>
+          <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-500"><ShieldCheck size={13}/>Public HTTP/HTTPS sites only · private networks and off-site redirects are blocked.</p>
         </div>
         <div className={`health-orbit-panel ${current?.overallStatus === 'down' ? 'is-down' : current?.uptime.status === null && current ? 'is-unknown' : ''}`}>
           <span className={`health-orbit ${busy ? 'is-running' : ''}`}><span className="health-orbit-core">{busy ? <Activity size={22} className="animate-pulse"/> : current?.overallStatus === 'healthy' ? <CheckCircle2 size={23}/> : current?.overallStatus === 'down' ? <AlertCircle size={23}/> : <Activity size={22}/>}</span></span>
