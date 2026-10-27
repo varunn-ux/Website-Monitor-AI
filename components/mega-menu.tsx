@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from 'motion/react';
 import { Activity, ArrowRight, ChevronRight, Gauge, Globe, Mail, Menu, ShieldCheck, Sparkles, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ThemeToggle } from './dashboard-ui';
 
 type MegaMenuProps = {
@@ -57,6 +57,7 @@ export function MegaMenu({
   currentStatus,
 }: MegaMenuProps) {
   const [open, setOpen] = useState(false);
+  const pendingNavigation = useRef<string | null>(null);
   const currentTone = useMemo(() => {
     if (currentStatus === 'healthy') return 'bg-emerald-500/15 text-emerald-700 ring-emerald-200';
     if (currentStatus === 'down') return 'bg-rose-500/15 text-rose-700 ring-rose-200';
@@ -64,9 +65,20 @@ export function MegaMenu({
     return 'bg-slate-500/10 text-slate-700 ring-slate-200';
   }, [currentStatus]);
 
+  const visibleMenuGroups = useMemo(() => {
+    if (currentStatus !== 'idle') return menuGroups;
+    const availableSections = new Set(['overview', 'websites', 'scan-history']);
+    return menuGroups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => availableSections.has(item.id)),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [currentStatus]);
+
   const handleNavigate = (section: string) => {
     onNavChange(section);
-    window.location.hash = section;
+    pendingNavigation.current = section;
     setOpen(false);
   };
 
@@ -121,12 +133,28 @@ export function MegaMenu({
         </div>
       </div>
 
-      <AnimatePresence>
+      <AnimatePresence
+        onExitComplete={() => {
+          const section = pendingNavigation.current;
+          if (!section) return;
+
+          pendingNavigation.current = null;
+          const target = document.getElementById(section);
+          if (!target) return;
+
+          window.history.pushState(null, '', `#${section}`);
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+              target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
+          });
+        }}
+      >
         {open && (
           <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }} transition={{ duration: 0.22, ease: 'easeOut' }} className="border-b border-slate-200/80 bg-white/80 backdrop-blur-xl">
             <div className="mx-auto grid max-w-[1440px] gap-6 px-4 py-5 sm:px-6 lg:grid-cols-[1.2fr_0.8fr] lg:px-8">
               <div className="grid gap-5 md:grid-cols-3">
-                {menuGroups.map((group) => (
+                {visibleMenuGroups.map((group) => (
                   <div key={group.heading} className="space-y-3">
                     <p className="px-2 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{group.heading}</p>
                     <div className="space-y-2">
