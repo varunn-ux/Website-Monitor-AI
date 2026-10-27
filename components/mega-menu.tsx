@@ -71,7 +71,7 @@ export function MegaMenu({
   };
 
   return (
-    <div className="sticky top-0 z-40">
+    <div className="sticky top-0 z-40" onMouseLeave={() => setOpen(false)}>
       <div className="border-b border-white/60 bg-white/65 backdrop-blur-xl shadow-[0_20px_60px_rgba(148,163,184,0.08)]">
         <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
           <a href="#overview" className="flex min-w-0 items-center gap-3 rounded-2xl px-2 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-600">
@@ -88,6 +88,9 @@ export function MegaMenu({
             <button
               type="button"
               onClick={() => setOpen((value) => !value)}
+              onMouseEnter={() => setOpen(true)}
+              onFocus={() => setOpen(true)}
+              aria-haspopup="true"
               aria-expanded={open}
               className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/80 px-3 py-2 text-xs font-semibold text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] transition hover:border-indigo-200 hover:text-indigo-700"
             >
